@@ -1,0 +1,2034 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Firerate Computation Flow</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface: #fafbfc;
+    --border: #e1e4e8;
+    --text: #1a1d23;
+    --text-muted: #6a737d;
+    --accent: #0366d6;
+    --accent-bg: #f1f8ff;
+    --signal-fill: #e6f5ec;
+    --signal-stroke: #2d8a4e;
+    --param-fill: #fff7d6;
+    --param-stroke: #b58900;
+    --compute-fill: #e1ecff;
+    --compute-stroke: #0366d6;
+    --output-fill: #ffe4ea;
+    --output-stroke: #d0294b;
+    --state-fill: #f0eaf7;
+    --state-stroke: #6f42c1;
+    --branch-fill: #fff2e6;
+    --branch-stroke: #e36209;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 24px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .container { max-width: 1100px; margin: 0 auto; }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 16px;
+    margin-bottom: 20px;
+  }
+  h1 { margin: 0 0 6px 0; font-size: 22px; font-weight: 600; }
+  .subtitle { color: var(--text-muted); margin: 0; font-size: 14px; }
+
+  .tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 20px;
+  }
+  .tab-button {
+    background: none;
+    border: none;
+    padding: 10px 18px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    font-weight: 500;
+    transition: all 0.15s;
+    font-family: inherit;
+  }
+  .tab-button:hover { color: var(--text); background: var(--surface); }
+  .tab-button.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    background: var(--accent-bg);
+  }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  .tab-content h2 {
+    margin: 0 0 6px 0;
+    font-size: 17px;
+    font-weight: 600;
+  }
+  .lead {
+    color: var(--text-muted);
+    margin: 0 0 20px 0;
+    font-size: 14px;
+  }
+
+  .diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    overflow-x: auto;
+    text-align: center;
+  }
+  .diagram svg { max-width: 100%; height: auto; }
+
+  .legend {
+    margin-top: 14px;
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1.5px solid;
+  }
+
+  .notes {
+    margin-top: 20px;
+    padding: 14px 16px;
+    background: var(--accent-bg);
+    border-radius: 6px;
+    border-left: 4px solid var(--accent);
+    font-size: 13px;
+  }
+  .notes p { margin: 0 0 8px 0; }
+  .notes p:last-child { margin-bottom: 0; }
+  .notes code, .formula {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    background: rgba(0,0,0,0.05);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  /* SVG text styling */
+  svg .label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px; font-weight: 600; fill: var(--text); }
+  svg .sublabel { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 11px; fill: var(--text-muted); }
+  svg .formula-text { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; fill: var(--text); }
+  svg .small-formula { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 10px; fill: var(--text); }
+  svg .tag { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 9px; font-weight: 600; letter-spacing: 0.5px; fill: var(--text-muted); }
+  svg .arrow { stroke: #888; stroke-width: 1.5; fill: none; }
+  svg .arrow-thick { stroke: #555; stroke-width: 2; fill: none; }
+  svg .arrow-dashed { stroke: #888; stroke-width: 1.5; fill: none; stroke-dasharray: 5 3; }
+
+  /* HTML-based diagrams (tabs 2 and 3) */
+  .diagram-html {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+  .pipeline { display: flex; flex-direction: column; gap: 6px; }
+  .row-with-aside {
+    display: grid;
+    grid-template-columns: 1fr 220px;
+    gap: 12px;
+    align-items: stretch;
+  }
+  .card {
+    border-radius: 6px;
+    padding: 12px 16px;
+    border: 1.5px solid;
+  }
+  .card-inputs { background: var(--signal-fill); border-color: var(--signal-stroke); }
+  .card-step { background: var(--compute-fill); border-color: var(--compute-stroke); }
+  .card-aside {
+    background: var(--param-fill);
+    border-color: var(--param-stroke);
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .card-output { background: var(--output-fill); border-color: var(--output-stroke); }
+  .card-state { background: var(--state-fill); border-color: var(--state-stroke); border-style: dashed; }
+  .card-branch { background: var(--branch-fill); border-color: var(--branch-stroke); }
+  .card-invariants { background: var(--state-fill); border-color: var(--state-stroke); }
+  .card-neutral { background: #f7f8fa; border-color: #b1b6bd; }
+  .card-accent { background: var(--accent-bg); border-color: var(--accent); }
+
+  .input-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  .input-item { text-align: center; }
+  .input-item-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .input-item-value { font-size: 14px; }
+  .input-item-note { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
+
+  .card-header {
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 6px;
+  }
+  .card-step-header {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .step-number {
+    font-weight: 700;
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .step-title { font-weight: 600; font-size: 13px; }
+
+  .formula-line { font-size: 13px; margin: 4px 0; line-height: 1.7; }
+  .formula-line.display { text-align: center; margin: 8px 0; }
+  .step-output {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px dashed rgba(0,0,0,0.08);
+  }
+  .arrow-down {
+    text-align: center;
+    font-size: 16px;
+    color: #888;
+    line-height: 1;
+    margin: 2px 0;
+  }
+  .aside-header {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .aside-content { font-size: 13px; line-height: 1.9; }
+  .aside-note { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+  /* Detailed (tab 3) layout */
+  .detailed-layout { display: flex; flex-direction: column; gap: 6px; }
+  .section-tag {
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin: 8px 0 2px 0;
+  }
+  .time-bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr 0.75fr;
+    gap: 8px;
+  }
+  .time-phase {
+    border-radius: 6px;
+    padding: 10px 12px;
+    border: 1.5px solid;
+  }
+  .time-phase-cancel { background: #fef5e7; border-color: #b58900; }
+  .time-phase-cool { background: #fdf2f5; border-color: #d0294b; }
+  .time-phase-settle { background: var(--compute-fill); border-color: var(--compute-stroke); }
+  .phase-title { font-weight: 600; font-size: 13px; }
+  .phase-time { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .phase-desc { font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.5; }
+
+  .inputs-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+  .inputs-row .card { padding: 10px 12px; }
+
+  .computation-grid {
+    display: grid;
+    grid-template-columns: 1.7fr 1fr;
+    gap: 12px;
+    align-items: start;
+  }
+  .steps-col, .side-col {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .step-output-pill {
+    margin-left: auto;
+    background: var(--output-fill);
+    border: 1px solid var(--output-stroke);
+    border-radius: 14px;
+    padding: 3px 11px;
+    font-size: 11px;
+    color: var(--output-stroke);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .card-step-header { flex-wrap: wrap; }
+  .invariants-summary-list {
+    list-style: none;
+    padding: 0;
+    margin: 8px 0 0 0;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 3px;
+    font-size: 12px;
+  }
+  .invariants-summary-list li {
+    display: grid;
+    grid-template-columns: 26px 1fr;
+    gap: 6px;
+    align-items: baseline;
+    padding: 4px 8px;
+    background: rgba(111, 66, 193, 0.06);
+    border-radius: 4px;
+  }
+  .invariants-summary-list .inv-tag {
+    color: var(--state-stroke);
+    font-weight: 700;
+    font-size: 11px;
+  }
+  .invariants-summary-list .inv-desc { line-height: 1.4; }
+  .invariants-link {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed rgba(0,0,0,0.08);
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  .branch-block { margin-bottom: 10px; }
+  .branch-block:last-child { margin-bottom: 0; }
+  .branch-block-title { font-size: 11px; font-weight: 700; margin-bottom: 2px; color: #9b3e08; }
+  .branch-block-body { font-size: 12px; line-height: 1.5; }
+  .branch-block-note { color: var(--text-muted); font-size: 11px; }
+
+  .invariants-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 12px;
+  }
+  .invariants-list li {
+    margin: 5px 0;
+    padding-left: 30px;
+    text-indent: -30px;
+    line-height: 1.6;
+  }
+  .inv-num {
+    display: inline-block;
+    width: 28px;
+    font-weight: 700;
+    color: var(--state-stroke);
+    font-size: 11px;
+  }
+  .inv-comment {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 1px;
+    padding-left: 0;
+    text-indent: 0;
+  }
+
+  .bottom-row {
+    display: grid;
+    grid-template-columns: 0.7fr 0.85fr 1.1fr;
+    gap: 8px;
+  }
+  .bottom-row .card { padding: 10px 12px; font-size: 12px; }
+
+  .acceptance-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .acceptance-card {
+    background: #fffdf7;
+    border: 1px solid #b58900;
+    border-radius: 6px;
+    padding: 12px 14px;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .acceptance-card .card-header { color: #7a5500; }
+  .acceptance-card .muted { color: var(--text-muted); margin: 2px 0 8px 0; }
+  .acceptance-card .muted:last-child { margin-bottom: 0; }
+
+  /* Tab 1: 3-column overview grid */
+  .tab1-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.4fr 1fr;
+    gap: 22px;
+    align-items: stretch;
+  }
+  .tab1-col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    justify-content: center;
+  }
+  .tab1-card {
+    border-radius: 8px;
+    padding: 14px 16px;
+    border: 1.5px solid;
+    position: relative;
+  }
+  .tab1-card.in { background: var(--signal-fill); border-color: var(--signal-stroke); }
+  .tab1-card.in-state { background: var(--state-fill); border-color: var(--state-stroke); border-style: dashed; }
+  .tab1-card.out { background: var(--output-fill); border-color: var(--output-stroke); }
+  .tab1-card-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-bottom: 4px;
+    text-align: center;
+  }
+  .tab1-card-value {
+    font-size: 15px;
+    text-align: center;
+    margin: 4px 0;
+  }
+  .tab1-card-note {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+    margin-top: 4px;
+    line-height: 1.4;
+  }
+  .tab1-col-inputs .tab1-card::after {
+    content: "→";
+    position: absolute;
+    right: -20px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 18px;
+    color: #999;
+    z-index: 1;
+  }
+  .tab1-col-outputs .tab1-card::before {
+    content: "→";
+    position: absolute;
+    left: -20px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 18px;
+    color: #999;
+    z-index: 1;
+  }
+  .tab1-central {
+    background: var(--compute-fill);
+    border: 2px solid var(--compute-stroke);
+    border-radius: 12px;
+    padding: 18px 22px;
+    align-self: center;
+    text-align: center;
+  }
+  .tab1-central-title { font-weight: 700; font-size: 17px; color: var(--compute-stroke); }
+  .tab1-central-subtitle {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin: 4px 0 12px 0;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+  }
+  .tab1-central-list { text-align: left; font-size: 13px; list-style: none; padding: 0; margin: 0; }
+  .tab1-central-list li { margin: 6px 0; display: flex; gap: 10px; align-items: baseline; }
+  .tab1-central-list .step-num { font-weight: 700; color: var(--compute-stroke); min-width: 16px; }
+  .tab1-central-footer {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(0,0,0,0.08);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .tab1-loopback {
+    margin-top: 18px;
+    padding: 10px 14px;
+    background: var(--state-fill);
+    border: 1px dashed var(--state-stroke);
+    border-radius: 6px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* Real timeline (Tab 3) */
+  .tl-wrap {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 30px 24px 16px 24px;
+  }
+  .tl-bars {
+    display: flex;
+    align-items: stretch;
+    height: 60px;
+  }
+  .tl-bar {
+    flex: 1;
+    position: relative;
+    padding: 8px 12px;
+    border: 1.5px solid;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+  }
+  .tl-bar-cancel {
+    background: #fef5e7;
+    border-color: #b58900;
+    color: #7a5500;
+    border-right: none;
+    border-radius: 6px 0 0 6px;
+  }
+  .tl-bar-cool {
+    background: #fdf2f5;
+    border-color: #d0294b;
+    color: #a01a36;
+    border-radius: 0 6px 6px 0;
+  }
+  .tl-bar strong { font-size: 13px; display: block; }
+  .tl-bar small { font-size: 11px; opacity: 0.85; }
+  .tl-tick {
+    position: absolute;
+    top: -22px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+  }
+  .tl-tick::after {
+    content: "";
+    display: block;
+    position: absolute;
+    bottom: -8px;
+    left: 50%;
+    width: 1px;
+    height: 6px;
+    background: #999;
+  }
+  .tl-tick.t0 { left: 0; transform: translateX(-50%); }
+  .tl-tick.t30 { left: 0; transform: translateX(-50%); }
+  .tl-tick.t60 { right: 0; transform: translateX(50%); }
+  .tl-settle {
+    margin-left: 22px;
+    width: 130px;
+    padding: 8px 10px;
+    background: var(--compute-fill);
+    border: 1.5px solid var(--compute-stroke);
+    border-radius: 6px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+  }
+  .tl-settle::before {
+    content: "→";
+    position: absolute;
+    left: -18px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 16px;
+    color: var(--compute-stroke);
+  }
+  .tl-settle-title { font-size: 12px; font-weight: 700; color: var(--compute-stroke); }
+  .tl-settle-sub { font-size: 10px; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
+  .tl-row { display: flex; align-items: center; }
+  .tl-note {
+    margin-top: 16px;
+    padding: 10px 14px;
+    background: var(--accent-bg);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  /* Tab 4: invariants detailed */
+  .invariant-cards {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .invariant-card {
+    background: white;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--state-stroke);
+    border-radius: 6px;
+    padding: 14px 18px;
+  }
+  .invariant-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+  }
+  .invariant-id {
+    font-weight: 700;
+    color: var(--state-stroke);
+    font-size: 12px;
+    background: var(--state-fill);
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .invariant-title { font-weight: 600; font-size: 14px; }
+  .invariant-formula {
+    background: rgba(0,0,0,0.03);
+    padding: 8px 12px;
+    border-radius: 4px;
+    margin: 8px 0;
+    text-align: center;
+    font-size: 14px;
+  }
+  .invariant-row { font-size: 13px; line-height: 1.6; margin: 6px 0; }
+  .invariant-label {
+    font-weight: 700;
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-right: 6px;
+  }
+
+  /* Tab 5: Game theory */
+  .gt-section { margin-bottom: 16px; }
+  .gt-section:last-child { margin-bottom: 0; }
+  .gt-section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0 0 10px 0;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .gt-section-title .gt-num {
+    color: var(--text-muted);
+    margin-right: 8px;
+    font-weight: 600;
+  }
+
+  /* Attack flow chain */
+  .attack-flow {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    align-items: stretch;
+  }
+  .attack-step {
+    border-radius: 6px;
+    padding: 10px 12px;
+    border: 1.5px solid;
+    position: relative;
+    text-align: center;
+  }
+  .attack-step::after {
+    content: "→";
+    position: absolute;
+    right: -10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 16px;
+    color: #888;
+    background: var(--surface);
+    z-index: 2;
+    padding: 0 2px;
+  }
+  .attack-step:last-child::after { display: none; }
+  .attack-step-1 { background: #fff2e6; border-color: #e36209; }
+  .attack-step-2 { background: var(--signal-fill); border-color: var(--signal-stroke); }
+  .attack-step-3 { background: var(--compute-fill); border-color: var(--compute-stroke); }
+  .attack-step-4 { background: var(--output-fill); border-color: var(--output-stroke); }
+  .attack-step-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  .attack-step-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .attack-step-body { font-size: 11px; line-height: 1.5; color: var(--text-muted); }
+
+  /* Multi-window descent chart */
+  .chart-box {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .chart-box svg { display: block; margin: 0 auto; }
+  svg .chart-axis-label { font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 10px; fill: var(--text-muted); font-weight: 600; }
+  svg .chart-value-label { font-family: "SF Mono", Menlo, monospace; font-size: 10px; fill: var(--text); }
+  svg .chart-tick-label { font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 10px; fill: var(--text-muted); }
+  svg .chart-floor-label { font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 10px; fill: var(--output-stroke); font-weight: 600; }
+
+  .chart-legend {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .chart-legend-item { display: flex; align-items: center; gap: 6px; }
+  .chart-legend-swatch { width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid; }
+
+  /* Cost components stacked bar */
+  .cost-stack {
+    display: flex;
+    height: 36px;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    margin: 8px 0;
+  }
+  .cost-piece {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    flex-direction: column;
+    text-align: center;
+    padding: 0 4px;
+  }
+  .cost-piece.capital { background: #2d8a4e; }
+  .cost-piece.fill { background: #b58900; }
+  .cost-piece.signal { background: #0366d6; }
+  .cost-piece small {
+    font-size: 10px;
+    font-weight: 400;
+    opacity: 0.85;
+    margin-top: 1px;
+  }
+
+  .cost-formulas {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-size: 13px;
+    line-height: 1.8;
+  }
+  .cost-formula-row {
+    display: grid;
+    grid-template-columns: 100px 1fr 90px;
+    gap: 10px;
+    align-items: baseline;
+    padding: 4px 0;
+    border-bottom: 1px dashed rgba(0,0,0,0.06);
+  }
+  .cost-formula-row:last-child { border-bottom: none; }
+  .cost-formula-name {
+    font-weight: 600;
+    font-size: 12px;
+  }
+  .cost-formula-value {
+    text-align: right;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .cost-formula-total {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 2px solid var(--text);
+    font-weight: 700;
+  }
+
+  /* Sensitivity table */
+  .sens-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .sens-table th, .sens-table td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .sens-table th {
+    background: var(--surface);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-muted);
+    font-weight: 700;
+  }
+  .sens-table .sens-param { font-weight: 700; white-space: nowrap; }
+  .sens-table .sens-effect { color: var(--signal-stroke); font-weight: 600; }
+  .sens-table .sens-tradeoff { color: var(--text-muted); font-size: 11px; }
+
+  /* Model A vs B comparison */
+  .ab-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .ab-panel {
+    background: white;
+    border: 1.5px solid;
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .ab-panel.a { border-color: var(--output-stroke); background: #fff5f7; }
+  .ab-panel.b { border-color: var(--signal-stroke); background: #f3faf5; }
+  .ab-panel-title {
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+  .ab-panel.a .ab-panel-title { color: var(--output-stroke); }
+  .ab-panel.b .ab-panel-title { color: var(--signal-stroke); }
+  .ab-panel-subtitle { font-size: 11px; color: var(--text-muted); margin-bottom: 10px; }
+  .ab-panel-row { font-size: 12px; line-height: 1.6; margin: 6px 0; }
+  .ab-panel-row strong { font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; color: var(--text-muted); }
+  .ab-verdict {
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: #f1f8ff;
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  /* Simplified cost-of-attack panels */
+  .cost-question {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin: 14px 0 10px 0;
+  }
+  .cost-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .cost-card {
+    border-radius: 8px;
+    padding: 14px;
+    border: 1.5px solid;
+    display: flex;
+    flex-direction: column;
+  }
+  .cost-card.c-capital { background: #e6f5ec; border-color: #2d8a4e; }
+  .cost-card.c-fill { background: #fff7d6; border-color: #b58900; }
+  .cost-card.c-signal { background: #e1ecff; border-color: #0366d6; }
+  .cost-card-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; line-height: 1.4; }
+  .cost-card-body { font-size: 12px; line-height: 1.55; color: var(--text); flex: 1; }
+  .cost-card-math {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed rgba(0,0,0,0.12);
+    line-height: 1.5;
+  }
+  .cost-card-amount {
+    margin-top: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .cost-sum-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 16px;
+    align-items: center;
+    margin-top: 14px;
+    padding: 12px 16px;
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .cost-sum-stack {
+    display: flex;
+    height: 30px;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .cost-sum-stack .cost-piece {
+    flex-direction: row;
+    font-size: 11px;
+    padding: 0 8px;
+  }
+  .cost-sum-stack .cost-piece small { display: none; }
+  .cost-sum-total {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .cost-sum-total small {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 500;
+    margin-top: 2px;
+  }
+
+  .cost-explanation {
+    margin-top: 14px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .explanation-box {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+  }
+  .explanation-box .ex-body {
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .explanation-box .ex-result {
+    margin-top: 8px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .market-compare {
+    margin-top: 14px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 14px;
+    align-items: stretch;
+  }
+  .market-cell {
+    background: white;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    text-align: center;
+  }
+  .market-cell.thin { border-color: var(--border); background: white; }
+  .market-cell.deep { border-color: var(--border); background: white; }
+  .market-cell-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-weight: 700;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  .market-cell-name { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .market-cell-detail { font-size: 11px; color: var(--text-muted); margin-bottom: 10px; }
+  .market-cell-amount { font-size: 18px; font-weight: 600; color: var(--text); }
+  .market-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  /* Sensitivity cards (Panel 4) */
+  .sens-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .sens-card {
+    background: white;
+    border: 1.5px solid var(--border);
+    border-left: 4px solid;
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .sens-card.dim-1 { border-left-color: #2d8a4e; }
+  .sens-card.dim-2 { border-left-color: #0366d6; }
+  .sens-card.dim-3 { border-left-color: #b58900; }
+  .sens-card.dim-4 { border-left-color: #6f42c1; }
+  .sens-card-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .sens-card-symbol { font-size: 18px; font-weight: 700; }
+  .sens-card-name {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .sens-card-meaning {
+    font-size: 12px;
+    color: var(--text);
+    margin-bottom: 8px;
+    line-height: 1.5;
+  }
+  .sens-card-direction {
+    background: var(--accent-bg);
+    border-left: 3px solid var(--accent);
+    padding: 8px 10px;
+    margin: 8px 0;
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .sens-card-direction strong { color: var(--accent); }
+  .sens-card-formula {
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 6px 10px;
+    background: rgba(0,0,0,0.03);
+    border-radius: 4px;
+    margin: 8px 0;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .sens-card-tradeoff {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+    line-height: 1.55;
+    border-top: 1px dashed rgba(0,0,0,0.08);
+    padding-top: 8px;
+    margin-top: 8px;
+  }
+  .sens-card-tradeoff strong { font-style: normal; color: var(--output-stroke); margin-right: 4px; }
+
+  /* Model A/B enhanced panels (Panel 5) */
+  .ab-panel-intro {
+    font-size: 13px;
+    line-height: 1.55;
+    background: rgba(255,255,255,0.6);
+    padding: 10px 12px;
+    border-radius: 4px;
+    margin: 8px 0 12px 0;
+  }
+  .ab-panel-section {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.4px;
+    margin: 10px 0 4px 0;
+  }
+  .ab-panel-content {
+    font-size: 12px;
+    line-height: 1.55;
+    margin-bottom: 6px;
+  }
+  .ab-panel-formula {
+    background: rgba(255,255,255,0.7);
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin: 6px 0;
+  }
+
+  /* Connections block */
+  .connections-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .connection-card {
+    background: white;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .connection-card .conn-title {
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>[Research] Firerate Computation Flow</h1>
+    <p class="subtitle">Поток вычислений механизма Firerate в каждом Batch Window, в пяти уровнях абстракции.</p>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-button active" data-tab="overview">1. Модель вычислений</button>
+    <button class="tab-button" data-tab="pipeline">2. Поток вычислений</button>
+    <button class="tab-button" data-tab="detailed">3. Контекст вычислений</button>
+    <button class="tab-button" data-tab="invariants">4. Инварианты вычислений</button>
+    <button class="tab-button" data-tab="game-theory">5. Стоимость атаки</button>
+  </nav>
+
+  <main>
+
+    <!-- ============================================================ -->
+    <!-- TAB 1: OVERVIEW                                              -->
+    <!-- ============================================================ -->
+    <section id="overview" class="tab-content active">
+      <h2>Уровень 1. Интервальные вычисления внутри Firerate</h2>
+      <p class="lead">Высокоуровневая картина того, какие данные приходят на вход, что протокол вычисляет в момент закрытия Batch Window, и какие физические события происходят на settlement.</p>
+
+      <div class="diagram-html">
+        <div class="tab1-grid">
+
+          <div class="tab1-col tab1-col-inputs">
+            <div class="tab1-card in">
+              <div class="tab1-card-label">Сигналы Oracle</div>
+              <div class="tab1-card-value">$s, v, \sigma, q \in [0, 1]$</div>
+              <div class="tab1-card-note">bid-ask, velocity, volatility, volume</div>
+            </div>
+            <div class="tab1-card in">
+              <div class="tab1-card-label">Pending тикеты</div>
+              <div class="tab1-card-value">$Q_G,\; Q_P$</div>
+              <div class="tab1-card-note">Gratis и Promis в батче</div>
+            </div>
+            <div class="tab1-card in-state">
+              <div class="tab1-card-label">Предыдущий cap</div>
+              <div class="tab1-card-value">$V_{t-1}$</div>
+              <div class="tab1-card-note">state из прошлого окна</div>
+            </div>
+          </div>
+
+          <div class="tab1-central">
+            <div class="tab1-central-title">Firerate</div>
+            <div class="tab1-central-subtitle">Settlement в момент закрытия окна t</div>
+            <ul class="tab1-central-list">
+              <li><span class="step-num">1.</span><span>Composite stress score $S$</span></li>
+              <li><span class="step-num">2.</span><span>Stress multiplier $m(S),\; V_{\text{target}}$</span></li>
+              <li><span class="step-num">3.</span><span>Asymmetric ramp $\to V_t$</span></li>
+              <li><span class="step-num">4.</span><span>Pro-rata $\to r_G,\; r_P$</span></li>
+            </ul>
+            <div class="tab1-central-footer">Атомарно в одном блоке</div>
+          </div>
+
+          <div class="tab1-col tab1-col-outputs">
+            <div class="tab1-card out">
+              <div class="tab1-card-label">Hourly cap</div>
+              <div class="tab1-card-value">$V_t$</div>
+              <div class="tab1-card-note">потолок эмиссии coen за окно</div>
+            </div>
+            <div class="tab1-card out">
+              <div class="tab1-card-label">Per-token rates</div>
+              <div class="tab1-card-value">$r_G,\; r_P \in [0, 1]$</div>
+              <div class="tab1-card-note">coen за 1 Gratis/Promis</div>
+            </div>
+            <div class="tab1-card out">
+              <div class="tab1-card-label">Settlement</div>
+              <div class="tab1-card-value" style="font-size:13px; line-height:1.5;">$Q_G,\; Q_P$ сжигаются<br>coen майнятся</div>
+            </div>
+          </div>
+
+        </div>
+        <div class="tab1-loopback">↻ $V_t$ становится $V_{t-1}$ для следующего окна</div>
+      </div>
+
+      <div class="legend">
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--signal-fill); border-color:var(--signal-stroke);"></span>Входные сигналы / тикеты</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--state-fill); border-color:var(--state-stroke); border-style:dashed;"></span>State между окнами</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--compute-fill); border-color:var(--compute-stroke);"></span>Вычисления внутри модели Firerate</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--output-fill); border-color:var(--output-stroke);"></span>Выходные сигналы и физические события</div>
+      </div>
+
+      <div class="notes">
+        <p><strong>Главный посыл этого уровня.</strong> Firerate - это функция, которая раз в час превращает 4 нормализованных рыночных сигнала (плюс состав pending-батча) в три числа: часовой потолок эмиссии $V_t$ и две per-token ставки $r_G, r_P$. На основании этих чисел settlement сжигает все Gratis/Promis в батче и майнит coen.</p>
+        <p><strong>Что не показано здесь.</strong> Параметры протокола (веса, $m_\text{min}$, $S_0$, $k$, ramp caps, allocation shares) вынесены на уровень 2, в то время как тайминги и edge-кейсы внутри окна (cancellation window / cool-down) вынесены на уровень 3.</p>
+      </div>
+    </section>
+
+
+    <!-- ============================================================ -->
+    <!-- TAB 2: PIPELINE                                              -->
+    <!-- ============================================================ -->
+    <section id="pipeline" class="tab-content">
+      <h2>Уровень 2. Четыре шага параметрической формулы</h2>
+      <p class="lead">Здесь мы исследуем, как из четырёх рыночных сигналов получаются $V_t$ и per-token ставки $r_G, r_P$. Первые три шага берутся из раздела §3.5.3 спеки, а шаг 4 представляет собой слой расширения над базовой концепцией. Сбоку представлены параметры, которые используются на каждом шаге.</p>
+
+      <div class="diagram-html">
+        <div class="pipeline">
+
+          <div class="card card-inputs">
+            <div class="step-title" style="text-align:center; margin-bottom:8px;">Входы окна t</div>
+            <div class="input-grid">
+              <div class="input-item">
+                <div class="input-item-label">Oracle сигналы</div>
+                <div class="input-item-value">$s, v, \sigma, q \in [0, 1]$</div>
+              </div>
+              <div class="input-item">
+                <div class="input-item-label">Pending тикеты</div>
+                <div class="input-item-value">$Q_G,\; Q_P$</div>
+                <div class="input-item-note">сумма amount_locked</div>
+              </div>
+              <div class="input-item">
+                <div class="input-item-label">State</div>
+                <div class="input-item-value">$V_{t-1}$</div>
+                <div class="input-item-note">из прошлого окна</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="arrow-down">↓</div>
+
+          <div class="row-with-aside">
+            <div class="card card-step">
+              <div class="card-step-header">
+                <span class="step-number">Шаг 1</span>
+                <span class="step-title">Composite stress score</span>
+              </div>
+              <div class="formula-line display">$S_{\text{raw}} = w_s \cdot s + w_v \cdot v + w_\sigma \cdot \sigma - w_q \cdot q$</div>
+              <div class="formula-line display">$S = \operatorname{clamp}(S_{\text{raw}}, 0, 1)$</div>
+              <div class="step-output">→ $S \in [0, 1]$</div>
+            </div>
+            <div class="card card-aside">
+              <div class="aside-header">Веса governance</div>
+              <div class="aside-content">$w_s,\; w_v,\; w_\sigma,\; w_q$</div>
+            </div>
+          </div>
+
+          <div class="arrow-down">↓</div>
+
+          <div class="row-with-aside">
+            <div class="card card-step">
+              <div class="card-step-header">
+                <span class="step-number">Шаг 2</span>
+                <span class="step-title">Stress multiplier + target volume</span>
+              </div>
+              <div class="formula-line display">$m(S) = m_{\min} + (1 - m_{\min}) \cdot \bigl(1 - \operatorname{sigmoid}(k(S - S_0))\bigr)$</div>
+              <div class="formula-line display">$V_{\text{target}} = \operatorname{clamp}\bigl(V_{\text{base}} \cdot m(S),\; V_{\min},\; V_{\max}\bigr)$</div>
+              <div class="step-output">→ $m(S) \in [m_{\min}, 1],\; V_{\text{target}}$</div>
+            </div>
+            <div class="card card-aside">
+              <div class="aside-header">Sigmoid + bounds</div>
+              <div class="aside-content">$m_{\min},\; S_0,\; k$<br>$V_{\text{base}}$<br>$V_{\min},\; V_{\max}$</div>
+            </div>
+          </div>
+
+          <div class="arrow-down">↓</div>
+
+          <div class="row-with-aside">
+            <div class="card card-step">
+              <div class="card-step-header">
+                <span class="step-number">Шаг 3</span>
+                <span class="step-title">Asymmetric ramp limit</span>
+              </div>
+              <div class="formula-line display">$V_t = \operatorname{clamp}\bigl(V_{\text{target}},\; V_{t-1}(1 - r_{\text{down}}),\; V_{t-1}(1 + r_{\text{up}})\bigr)$</div>
+              <div class="step-output">→ $V_t$ (финальный hourly cap)</div>
+            </div>
+            <div class="card card-aside">
+              <div class="aside-header">Ramp caps</div>
+              <div class="aside-content">$r_{\text{down}},\; r_{\text{up}}$</div>
+              <div class="aside-note">$r_{\text{down}} > r_{\text{up}}$ - сжимаемся быстрее, чем расслабляемся</div>
+            </div>
+          </div>
+
+          <div class="arrow-down">↓</div>
+
+          <div class="row-with-aside">
+            <div class="card card-step">
+              <div class="card-step-header">
+                <span class="step-number">Шаг 4</span>
+                <span class="step-title">Per-token rates + settlement</span>
+              </div>
+              <div class="formula-line">$\operatorname{allocation}_G = V_t \cdot \alpha_G; \quad \operatorname{allocation}_P = V_t \cdot \alpha_P$</div>
+              <div class="formula-line">$\operatorname{base\_rate} = m(S)$ <em>(Модель A)</em> &nbsp;или&nbsp; $\operatorname{base\_rate} = 1$ <em>(Модель B)</em></div>
+              <div class="formula-line">$\operatorname{effective\_rate}_G = \min\bigl(\operatorname{base\_rate},\; \operatorname{allocation}_G / Q_G\bigr)$ при $Q_G > 0$</div>
+              <div class="formula-line">$\operatorname{effective\_rate}_P = \min\bigl(\operatorname{base\_rate},\; \operatorname{allocation}_P / Q_P\bigr)$ при $Q_P > 0$</div>
+              <div class="formula-line">$\operatorname{coens\_mined}_G = Q_G \cdot \operatorname{effective\_rate}_G$ &nbsp;&nbsp; (все $Q_G$ Gratis сжигаются)</div>
+              <div class="formula-line">$\operatorname{coens\_mined}_P = Q_P \cdot \operatorname{effective\_rate}_P$ &nbsp;&nbsp; (все $Q_P$ Promis сжигаются)</div>
+            </div>
+            <div class="card card-aside">
+              <div class="aside-header">Allocation + модель</div>
+              <div class="aside-content">$\alpha_G,\; \alpha_P$</div>
+              <div class="aside-note">$\alpha_G + \alpha_P = 1$</div>
+              <div class="aside-note" style="margin-top:8px;">Выбор модели за Игорем и Сашей.</div>
+            </div>
+          </div>
+
+          <div class="arrow-down">↓</div>
+
+          <div class="card card-output" style="text-align:center;">
+            <div class="card-header">Выходы окна t</div>
+            <div class="formula-line">$V_t,\; r_G,\; r_P,\; \operatorname{coens\_mined},\; \text{burned Gratis/Promis}$</div>
+            <div class="step-output" style="border-top:none; margin-top:4px; padding-top:0;">State update: $V_{t-1} := V_t$ для следующего окна</div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="legend">
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--signal-fill); border-color:var(--signal-stroke);"></span>Входы</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--compute-fill); border-color:var(--compute-stroke);"></span>Шаг вычисления</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--param-fill); border-color:var(--param-stroke);"></span>Параметры governance</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--output-fill); border-color:var(--output-stroke);"></span>Выходы</div>
+      </div>
+
+      <div class="notes">
+        <p><strong>Пояснение к диаграмме.</strong> Шаги 1-3 точно повторяют формулу $V_t$ из §3.5.3 спеки (sigmoid + ramp). Шаг 4 делает расширение, закрывает per-token rate и pro-rata, которые в спеке только объявлены как outputs без математической записи.</p>
+      </div>
+    </section>
+
+
+    <!-- ============================================================ -->
+    <!-- TAB 3: DETAILED                                              -->
+    <!-- ============================================================ -->
+    <section id="detailed" class="tab-content">
+      <h2>Уровень 3. Контекст вычислений</h2>
+      <p class="lead">Полный контекст обвязки одного окна: фазы внутри часа, куда уходят сигналы и тикеты в каждой фазе, и какие есть branches в расчёте.</p>
+
+      <div class="diagram-html">
+        <div class="detailed-layout">
+
+          <div class="section-tag">Внутри окна t (1 час, выровнен по UTC)</div>
+          <div class="tl-wrap">
+            <div class="tl-row">
+              <div class="tl-bars">
+                <div class="tl-bar tl-bar-cancel">
+                  <span class="tl-tick t0">0 мин</span>
+                  <strong>Cancellation Window</strong>
+                  <small>submit + cancel разрешён</small>
+                </div>
+                <div class="tl-bar tl-bar-cool">
+                  <span class="tl-tick t30">30 мин</span>
+                  <span class="tl-tick t60">60 мин</span>
+                  <strong>Cool-down Period</strong>
+                  <small>состав батча зафиксирован</small>
+                </div>
+              </div>
+              <div class="tl-settle">
+                <div class="tl-settle-title">Settlement</div>
+                <div class="tl-settle-sub">шаги 1-4 вместе с burn/mine</div>
+              </div>
+            </div>
+            <div class="tl-note">
+              <strong>Сигналы аккумулируются весь час</strong> (минуты 0-60), что поддерживает анти-манипуляционный аргумент §3.6 спеки. Cool-down блокирует состав батча с минуты 30, но signal-sampling продолжается до самого закрытия, атакующему нужно удерживать манипуляцию на бирже долго, что потенциально сделает атаку дороже.
+            </div>
+          </div>
+
+          <div class="section-tag">На момент settlement (close)</div>
+          <div class="inputs-row">
+            <div class="card card-inputs">
+              <div class="input-item-label">Aggregated signals</div>
+              <div class="input-item-value">$s, v, \sigma, q \in [0, 1]$</div>
+              <div class="input-item-note">по всему окну t (мин 0-60)</div>
+            </div>
+            <div class="card card-inputs">
+              <div class="input-item-label">Locked batch</div>
+              <div class="input-item-value">$Q_G,\; Q_P$</div>
+              <div class="input-item-note">состав зафиксирован с минуты 30</div>
+            </div>
+            <div class="card card-state">
+              <div class="input-item-label">State</div>
+              <div class="input-item-value">$V_{t-1}$</div>
+              <div class="input-item-note">или cold-start anchor</div>
+            </div>
+            <div class="card card-aside">
+              <div class="aside-header">Параметры governance</div>
+              <div class="aside-content" style="font-size:12px;">$w_*,\; m_{\min},\; S_0,\; k,\; V_{\text{base}}$<br>$V_{\min},\; V_{\max},\; r_{\text{down}},\; r_{\text{up}},\; \alpha_*$</div>
+              <div class="aside-note">постоянны в окне</div>
+            </div>
+          </div>
+
+          <div class="section-tag">Settlement (атомарно в одном блоке)</div>
+          <div class="computation-grid">
+
+            <div class="steps-col">
+              <div class="card card-step">
+                <div class="card-step-header">
+                  <span class="step-number">Шаг 1</span>
+                  <span class="step-title">Composite stress score</span>
+                  <span class="step-output-pill">→ $S \in [0, 1]$</span>
+                </div>
+                <div class="formula-line">$S = \operatorname{clamp}(w_s s + w_v v + w_\sigma \sigma - w_q q,\; 0, 1)$</div>
+                <div class="step-output">монотонно ↑ по $s, v, \sigma$; ↓ по $q$. $0$ = calm, $1$ = max stress.</div>
+              </div>
+
+              <div class="card card-step">
+                <div class="card-step-header">
+                  <span class="step-number">Шаг 2</span>
+                  <span class="step-title">Stress multiplier + target volume</span>
+                  <span class="step-output-pill">→ $m(S),\; V_{\text{target}}$</span>
+                </div>
+                <div class="formula-line">$m(S) = m_{\min} + (1 - m_{\min})\bigl(1 - \operatorname{sigmoid}(k(S - S_0))\bigr)$</div>
+                <div class="formula-line">$V_{\text{target}} = \operatorname{clamp}(V_{\text{base}} m(S),\; V_{\min},\; V_{\max})$</div>
+                <div class="step-output">$m(0) \approx 1,\; m(S_0) = (1 + m_{\min})/2,\; m(1) \approx m_{\min}$. $m_{\min}/V_{\min}$ — paired (см. §V.1.2 Research).</div>
+              </div>
+
+              <div class="card card-step">
+                <div class="card-step-header">
+                  <span class="step-number">Шаг 3</span>
+                  <span class="step-title">Asymmetric ramp limit</span>
+                  <span class="step-output-pill">→ $V_t$</span>
+                </div>
+                <div class="formula-line">$V_t = \operatorname{clamp}\bigl(V_{\text{target}},\; V_{t-1}(1 - r_{\text{down}}),\; V_{t-1}(1 + r_{\text{up}})\bigr)$</div>
+                <div class="step-output">$r_{\text{down}} > r_{\text{up}}$: сжимается быстрее, расслабляется медленнее. Финальный hourly cap $\in [V_{\min}, V_{\max}]$.</div>
+              </div>
+
+              <div class="card card-step">
+                <div class="card-step-header">
+                  <span class="step-number">Шаг 4</span>
+                  <span class="step-title">Per-token rates + settlement</span>
+                  <span class="step-output-pill">→ $r_G,\; r_P$, settlement</span>
+                </div>
+                <div class="formula-line">$\operatorname{allocation}_G = V_t \alpha_G;\quad \operatorname{allocation}_P = V_t \alpha_P$</div>
+                <div class="formula-line">$\operatorname{base\_rate} = m(S)$ <em>(A)</em> или $\operatorname{base\_rate} = 1$ <em>(B)</em></div>
+                <div class="formula-line">если $Q_G > 0$: $\operatorname{effective\_rate}_G = \min(\operatorname{base\_rate},\; \operatorname{allocation}_G / Q_G)$</div>
+                <div class="formula-line">иначе: тикетов нет, значение неважно</div>
+                <div class="formula-line">$\operatorname{coens\_mined}_G = Q_G \cdot \operatorname{effective\_rate}_G$ (симметрично для P)</div>
+                <div class="step-output">$r_G, r_P \in [0, 1]$. coen майнятся; $Q_G$ Gratis + $Q_P$ Promis сжигаются целиком (I7).</div>
+              </div>
+            </div>
+
+            <div class="side-col">
+              <div class="card card-branch">
+                <div class="card-header" style="color:#9b3e08;">Branches и edge cases</div>
+                <div class="branch-block">
+                  <div class="branch-block-title">Модель A vs B (Open Q)</div>
+                  <div class="branch-block-body">A: $\operatorname{base\_rate} = m(S)$ — universal stress penalty<br>B: $\operatorname{base\_rate} = 1$ — cap-only</div>
+                  <div class="branch-block-note">Research §V.2.1, §VI.6 рекомендует B по attack-surface</div>
+                </div>
+                <div class="branch-block">
+                  <div class="branch-block-title">Pro-rata cap</div>
+                  <div class="branch-block-body">cap binds ↔ $Q \cdot \operatorname{base\_rate} \geq \operatorname{alloc}$. При связывании ставка снижается до $\operatorname{alloc}/Q$.</div>
+                </div>
+                <div class="branch-block">
+                  <div class="branch-block-title">Пустой батч</div>
+                  <div class="branch-block-body">$Q_G = 0$: ставка не определяется, allocation_G не используется.</div>
+                  <div class="branch-block-note">lost vs carried — Open Q</div>
+                </div>
+                <div class="branch-block">
+                  <div class="branch-block-title">Cold-start ramp</div>
+                  <div class="branch-block-body">$V_{t-1}$ → 4 варианта (a/b/c/d), §IX.2 Open Q.</div>
+                  <div class="branch-block-note">§VI.8 рекомендует (d) baseline anchor</div>
+                </div>
+              </div>
+
+              <div class="card card-invariants">
+                <div class="card-header" style="color:#5a378a;">Инварианты I1-I8</div>
+                <ul class="invariants-summary-list">
+                  <li><span class="inv-tag">I1</span><span class="inv-desc">$V_t \in [V_{\min}, V_{\max}]$</span></li>
+                  <li><span class="inv-tag">I2</span><span class="inv-desc">anti-step ramp</span></li>
+                  <li><span class="inv-tag">I3</span><span class="inv-desc">$m(S) \in [m_{\min}, 1]$</span></li>
+                  <li><span class="inv-tag">I4</span><span class="inv-desc">$r_G, r_P \in [0, 1]$</span></li>
+                  <li><span class="inv-tag">I5</span><span class="inv-desc">$\operatorname{coens\_minted}_X \leq \operatorname{allocation}_X$</span></li>
+                  <li><span class="inv-tag">I6</span><span class="inv-desc">$\sum \operatorname{coens\_minted} \leq V_t$</span></li>
+                  <li><span class="inv-tag">I7</span><span class="inv-desc">full burn-on-settlement</span></li>
+                  <li><span class="inv-tag">I8</span><span class="inv-desc">монотонность $V_t$ по сигналам</span></li>
+                </ul>
+                <div class="invariants-link">→ Tab 4 для подробного разбора каждого</div>
+              </div>
+            </div>
+
+          </div>
+
+          <div class="section-tag">После settlement</div>
+          <div class="bottom-row">
+            <div class="card card-state">
+              <div class="card-header">State update</div>
+              <div style="font-size:14px;">$V_{t-1} := V_t$</div>
+            </div>
+            <div class="card card-neutral">
+              <div class="card-header">Окно t+1 открывается</div>
+              <div style="color:var(--text-muted);">новые сигналы, новые тикеты, повтор</div>
+            </div>
+            <div class="card card-accent">
+              <div class="card-header">Что если Firerate переходит в Inactive?</div>
+              <div style="color:var(--text-muted);">1:1 routing через Mining Module без batch-окна; state $V_{t-1}$ сохраняется до реактивации</div>
+            </div>
+          </div>
+
+          <div class="section-tag">Acceptance criteria для калибровки</div>
+          <div class="acceptance-row">
+            <div class="acceptance-card">
+              <div class="card-header">Калибровочные ограничения</div>
+              <div>• При calm-baseline ($s = v = \sigma = 0$, $q = 1$): $S \leq S_0$</div>
+              <div class="muted">Иначе Firerate был бы постоянно Active на «нормальном» рынке.</div>
+              <div>• $V_{\min} < V_{\text{base}} \cdot m_{\min}$ (рекомендуется)</div>
+              <div class="muted">Тогда $V_{\min}$ — guard на конфиг-ошибку, не активный нижний предел.</div>
+              <div>• $r_{\text{down}} > r_{\text{up}}$ — защита от briefly-inflated spread attack</div>
+            </div>
+            <div class="acceptance-card">
+              <div class="card-header">Где смотреть в Research</div>
+              <div>§II — каталог переменных (signals/params/derivatives)</div>
+              <div>§III — допущения (Oracle, нормализация, timing, активация)</div>
+              <div>§V.1 — derivation $V_t$ (мирорит §3.5.3 спеки)</div>
+              <div>§V.2 — per-token rate + pro-rata (наше расширение)</div>
+              <div>§VIII — acceptance criteria и инварианты</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="legend">
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--signal-fill); border-color:var(--signal-stroke);"></span>Входы</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--compute-fill); border-color:var(--compute-stroke);"></span>Вычисление</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--output-fill); border-color:var(--output-stroke);"></span>Output-pill каждого шага</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--param-fill); border-color:var(--param-stroke);"></span>Параметры governance</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--branch-fill); border-color:var(--branch-stroke);"></span>Branches / edge cases</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--state-fill); border-color:var(--state-stroke); border-style:dashed;"></span>State / инварианты</div>
+      </div>
+
+      <div class="notes">
+        <p><strong>Как читать.</strong> Сверху описан timing внутри одного окна. Дальше описаны входы на момент settlement, четыре шага вычисления и их выходы, branches (Модель A/B, cold-start, пустой батч). Снизу показан state update и условия калибровки. Инварианты вынесены на отдельную вкладку.</p>
+        <p><strong>Что не показано.</strong> Численные значения параметров заменены placeholder'ами в Research §V.1.5. Точная форма функции активации (§3.1.1 спеки) до сих пор в статусе TBD, у нас рабочее допущение про выравнивание с $S_0$. Cost-of-attack анализ описан только в §VI Research.</p>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- TAB 4: INVARIANTS                                            -->
+    <!-- ============================================================ -->
+    <section id="invariants" class="tab-content">
+      <h2>Уровень 4. Инварианты вычислений</h2>
+      <p class="lead">Восемь свойств, которые должны выполняться в любой момент работы Firerate. Каждое - тестируемое условие для разработки и ревью, с пояснением, что оно значит, зачем нужно, и что его может сломать.</p>
+
+      <div class="diagram-html">
+        <div class="invariant-cards">
+
+          <div class="invariant-card">
+            <div class="invariant-header">
+              <span class="invariant-id">I1</span>
+              <span class="invariant-title">Maximum Hourly Mining Volume не выходит за hard bounds</span>
+            </div>
+            <div class="invariant-formula">$V_{\min} \leq V_t \leq V_{\max}$</div>
+            <div class="invariant-row"><span class="invariant-label">Что значит</span>В любом окне $t$ финальный потолок эмиссии лежит между абсолютным hard floor и hard ceiling, выставленными governance.</div>
+            <div class="invariant-row"><span class="invariant-label">Зачем</span>Страховка от ошибки в Шаге 2. Даже если сигналы или параметры дают аномально большой или маленький $V_{\text{target}}$, финальный $V_t$ зажат в безопасный диапазон.</div>
+            <div class="invariant-row"><span class="invariant-label">Что ломает</span>Ошибка в формуле $\operatorname{clamp}$ Шага 2; нарушение порядка операций; переполнение fixed-point.</div>
+          </div>
+
+          <div class="invariant-card">
+            <div class="invariant-header">
+              <span class="invariant-id">I2</span>
+              <span class="invariant-title">Anti-step (ramp limit)</span>
+            </div>
+            <div class="invariant-formula">$V_{t-1}(1 - r_{\text{down}}) \leq V_t \leq V_{t-1}(1 + r_{\text{up}})$</div>
+            <div class="invariant-row"><span class="invariant-label">Что значит</span>Соседние окна не могут отличаться по cap больше чем на $r_{\text{down}}$ вниз или $r_{\text{up}}$ вверх.</div>
+            <div class="invariant-row"><span class="invariant-label">Зачем</span>Защита от единичной стресс-вспышки. Атакующий, на минуту раздувший spread, не может за одно окно обвалить capacity до $m_{\min}$ - ramp заставляет растянуть атаку на несколько окон, что делает её дороже.</div>
+            <div class="invariant-row"><span class="invariant-label">Что ломает</span>Ошибка в Шаге 3; первое окно после активации без правильного cold-start anchor; нарушение асимметрии $r_{\text{down}} > r_{\text{up}}$.</div>
+          </div>
+
+          <div class="invariant-card">
+            <div class="invariant-header">
+              <span class="invariant-id">I3</span>
+              <span class="invariant-title">Stress multiplier ограничен сверху и снизу</span>
+            </div>
+            <div class="invariant-formula">$m_{\min} \leq m(S) \leq 1$</div>
+            <div class="invariant-row"><span class="invariant-label">Что значит</span>Множитель стресса никогда не зажимается ниже safety floor $m_{\min}$ и не превышает $1$.</div>
+            <div class="invariant-row"><span class="invariant-label">Зачем</span>Гарантирует, что под крайним стрессом capacity не уходит в ноль (а под нормой не раздувается выше baseline). Это safety floor, а не калибровочная ручка.</div>
+            <div class="invariant-row"><span class="invariant-label">Что ломает</span>Ошибка в формуле sigmoid; неверное масштабирование диапазона $[m_{\min}, 1]$; ошибка в clamp; переполнение при больших $k$.</div>
+          </div>
+
+          <div class="invariant-card">
+            <div class="invariant-header">
+              <span class="invariant-id">I4</span>
+              <span class="invariant-title">Per-token эффективная ставка ограничена $[0, 1]$</span>
+            </div>
+            <div class="invariant-formula">$0 \leq r_G,\; r_P \leq 1$</div>
+            <div class="invariant-row"><span class="invariant-label">Что значит</span>За 1 Gratis (или 1 Promis) держатель не получит больше 1 coen и не получит отрицательное число.</div>
+            <div class="invariant-row"><span class="invariant-label">Зачем</span>Базовое требование §3.5.2 спеки - конверсия не должна давать «бесплатные» coen сверх единицы. Гарантирует pro-rata fairness.</div>
+            <div class="invariant-row"><span class="invariant-label">Что ломает</span>Ошибка в Шаге 4; некорректный $\min$ с $\operatorname{allocation}/Q$; division by zero при $Q = 0$ (если ветка пустого батча не обработана).</div>
+          </div>
+
+          <div class="invariant-card">
+            <div class="invariant-header">
+              <span class="invariant-id">I5</span>
+              <span class="invariant-title">Эмиссия каждого типа токена не превышает allocation</span>
+            </div>
+            <div class="invariant-formula">$\operatorname{coens\_minted}_G \leq \operatorname{allocation}_G, \quad \operatorname{coens\_minted}_P \leq \operatorname{allocation}_P$</div>
+            <div class="invariant-row"><span class="invariant-label">Что значит</span>За окно из Gratis-батча майнится не больше, чем выделено в Gratis-allocation. То же для Promis.</div>
+            <div class="invariant-row"><span class="invariant-label">Зачем</span>Это формальная запись pro-rata из §3.4 спеки. Гарантирует, что oversubscription не приводит к over-emission.</div>
+            <div class="invariant-row"><span class="invariant-label">Что ломает</span>Ошибка в pro-rata; неверное $\min$; общий пул allocation между токенами вместо separate.</div>
+          </div>
+
+          <div class="invariant-card">
+            <div class="invariant-header">
+              <span class="invariant-id">I6</span>
+              <span class="invariant-title">Суммарная эмиссия не превышает Maximum Hourly Mining Volume</span>
+            </div>
+            <div class="invariant-formula">$\operatorname{coens\_minted}_G + \operatorname{coens\_minted}_P \leq V_t$</div>
+            <div class="invariant-row"><span class="invariant-label">Что значит</span>Общая эмиссия за окно не превышает $V_t$.</div>
+            <div class="invariant-row"><span class="invariant-label">Зачем</span>Следствие I5 и условия $\alpha_G + \alpha_P = 1$: $\operatorname{allocation}_G + \operatorname{allocation}_P = V_t$. Гарантирует, что hourly cap действительно ограничивает совокупную эмиссию.</div>
+            <div class="invariant-row"><span class="invariant-label">Что ломает</span>Если ломается I5; если $\alpha_G + \alpha_P \neq 1$.</div>
+          </div>
+
+          <div class="invariant-card">
+            <div class="invariant-header">
+              <span class="invariant-id">I7</span>
+              <span class="invariant-title">Полное сжигание заблокированного amount при settlement</span>
+            </div>
+            <div class="invariant-formula">$\operatorname{burn}(\text{ticket}) = \operatorname{amount\_locked}(\text{ticket})$</div>
+            <div class="invariant-row"><span class="invariant-label">Что значит</span>Тикет с $\operatorname{amount\_locked} = a$ сжигает ровно $a$ Gratis (или Promis) при settlement, независимо от $r$. Например, при $r = 0.5$ держатель сжигает $1000$ Gratis и получает $500$ coen - $500$ «потерянных» coen не возвращаются как Gratis.</div>
+            <div class="invariant-row"><span class="invariant-label">Зачем</span>Намеренное design property. Если бы непреобразованная часть возвращалась, panic-mining стал бы бесплатной опцией: майнить в стрессе, получать частичную выплату coen и сохранять остаток для следующего окна. Burn-on-settlement - и есть та friction, которая дисинцентивирует panic-mining.</div>
+            <div class="invariant-row"><span class="invariant-label">Что ломает</span>Попытка вернуть unconvертированную часть в виде Gratis/Promis; ошибка в settlement-логике; refund-механизм по ошибке.</div>
+          </div>
+
+          <div class="invariant-card">
+            <div class="invariant-header">
+              <span class="invariant-id">I8</span>
+              <span class="invariant-title">Монотонность $V_t$ по входным сигналам</span>
+            </div>
+            <div class="invariant-formula">$\dfrac{\partial V_t}{\partial s},\; \dfrac{\partial V_t}{\partial v},\; \dfrac{\partial V_t}{\partial \sigma} \leq 0; \quad \dfrac{\partial V_t}{\partial q} \geq 0$</div>
+            <div class="invariant-row"><span class="invariant-label">Что значит</span>$V_t$ не возрастает при росте bid-ask spread, price velocity и volatility (стресс-сигналы) и не убывает при росте trading volume (liquidity-сигнал).</div>
+            <div class="invariant-row"><span class="invariant-label">Зачем</span>Одно из трёх обязательных свойств из §3.5.3 спеки. Гарантирует, что чем больше стресс, тем меньше cap. Без этого механизм бесполезен - protocol мог бы расширять capacity на стрессе.</div>
+            <div class="invariant-row"><span class="invariant-label">Что ломает</span>Ошибка в знаке $w_q$ (volume должен входить с минусом); нарушение порядка операций sigmoid; ramp не должен «развернуть» зависимость.</div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="notes">
+        <p><strong>Как использовать.</strong> Этот список - acceptance criteria для разработки. Каждый инвариант формулируется как тестируемое неравенство (или равенство для I7) - можно написать unit-тест, который генерирует сигналы и параметры в широком диапазоне и проверяет, что инвариант выполняется на каждом шаге.</p>
+        <p><strong>Дальше.</strong> На следующей итерации Research добавляем формальные доказательства I1-I8 от форм формул (§V.1, §V.2) и набор property-based тестов на каждый инвариант.</p>
+      </div>
+    </section>
+
+
+    <!-- ============================================================ -->
+    <!-- TAB 5: GAME THEORY                                           -->
+    <!-- ============================================================ -->
+    <section id="game-theory" class="tab-content">
+      <h2>Уровень 5. Стоимость атаки</h2>
+      <p class="lead">Количественный анализ устойчивости Firerate к канонической атаке через манипуляцию рыночных сигналов. §3.6 спеки даёт качественный аргумент, Research §VI разворачивает его в формулу cost-of-attack, breakeven inequality, sensitivity по 4 параметрам и контраст attack-surface Модель A vs B.</p>
+
+      <div class="diagram-html">
+
+        <!-- ===== Panel 1: Attack flow ===== -->
+        <div class="gt-section">
+          <div class="gt-section-title"><span class="gt-num">1.</span>Флоу атаки шаг за шагом</div>
+
+          <div class="cost-question">Через какие звенья атакующий влияет на $V_t$?</div>
+
+          <div class="attack-flow">
+            <div class="attack-step attack-step-1">
+              <div class="attack-step-label">Атакующий</div>
+              <div class="attack-step-title">Капитал $K$</div>
+              <div class="attack-step-body">Размещает большие ордера на сумму $\alpha B$ (≈ 3× нормальной глубины) и держит их $\tau$ = 1 час, чтобы Oracle их «увидел» в сэмплинге.</div>
+            </div>
+            <div class="attack-step attack-step-2">
+              <div class="attack-step-label">Биржа</div>
+              <div class="attack-step-title">Инфляция сигналов</div>
+              <div class="attack-step-body">Bid-ask spread расширяется (главный сигнал). Дополнительно — wash-trades для инфляции velocity и volatility.</div>
+            </div>
+            <div class="attack-step attack-step-3">
+              <div class="attack-step-label">Oracle → Firerate</div>
+              <div class="attack-step-title">Депрессия $V_t$</div>
+              <div class="attack-step-body">Oracle публикует инфлированные $s, v, \sigma$. Firerate считает $S \to S_0$, sigmoid гасит $m(S)$, и $V_t$ падает через формулу §3.5.3.</div>
+            </div>
+            <div class="attack-step attack-step-4">
+              <div class="attack-step-label">Outcome</div>
+              <div class="attack-step-title">Holders теряют</div>
+              <div class="attack-step-body">Все pending-тикеты settle при сниженной ставке $r$. Атакующий не получает разницу, поскольку settlement унифицирован для всех.</div>
+            </div>
+          </div>
+
+          <div class="explanation-box" style="margin-top: 14px;">
+            <div class="ex-body">
+              <strong>Главный вывод.</strong> Атакующий не зарабатывает на этой атаке внутри Firerate, поскольку settlement равномерный, его собственные тикеты тоже сеттлятся по сниженной ставке. Его выгода реализуется в external маркетах. Например, у него short-позиция в coen на бирже (меньше эмиссия, а цена держится), или vendetta against конкретным держателям, или дестабилизация протокола как самоцель. Без external benefit атака экономического смысла не имеет.
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== Panel 2: Multi-window descent chart ===== -->
+        <div class="gt-section">
+          <div class="gt-section-title"><span class="gt-num">2.</span>Длительность атаки в 7 часах</div>
+
+          <div class="cost-question">Как ramp limit растягивает атаку во времени?</div>
+
+          <div class="chart-box">
+            <svg width="720" height="290" viewBox="0 0 720 290" xmlns="http://www.w3.org/2000/svg">
+
+              <!-- Y axis -->
+              <line x1="70" y1="20" x2="70" y2="245" stroke="#999" stroke-width="1"/>
+              <text x="62" y="25" text-anchor="end" class="chart-axis-label">V_base</text>
+              <text x="62" y="138" text-anchor="end" class="chart-tick-label">500K</text>
+              <text x="62" y="248" text-anchor="end" class="chart-axis-label">0</text>
+              <!-- Grid line at 500K for reference -->
+              <line x1="70" y1="132" x2="710" y2="132" stroke="#eee" stroke-width="1"/>
+
+              <!-- Floor line at m_min · V_base = 100K = y=222 -->
+              <line x1="70" y1="222" x2="710" y2="222" stroke="#d0294b" stroke-dasharray="4 3" stroke-width="1"/>
+
+              <!-- X axis -->
+              <line x1="70" y1="245" x2="710" y2="245" stroke="#999" stroke-width="1"/>
+              <text x="390" y="280" text-anchor="middle" class="chart-axis-label">Window number (часов sustained manipulation)</text>
+
+              <!-- Bars: V_t values
+                   Y mapping: V_base (1M) → y=20, 0 → y=245
+                   1 unit = 225/1000K = 0.225 per K
+                   y = 245 - V*0.225 (V in K)
+              -->
+              <!-- W0: 1000K → y=20, h=225 -->
+              <rect x="90" y="20" width="60" height="225" fill="var(--compute-fill)" stroke="var(--compute-stroke)" stroke-width="1.5" rx="2"/>
+              <text x="120" y="262" text-anchor="middle" class="chart-tick-label">0</text>
+              <text x="120" y="14" text-anchor="middle" class="chart-value-label">1.00M</text>
+
+              <!-- W1: 700K → y=87.5, h=157.5 -->
+              <rect x="170" y="88" width="60" height="157" fill="var(--branch-fill)" stroke="var(--branch-stroke)" stroke-width="1.5" rx="2"/>
+              <text x="200" y="262" text-anchor="middle" class="chart-tick-label">1</text>
+              <text x="200" y="82" text-anchor="middle" class="chart-value-label">700K</text>
+
+              <!-- W2: 490K → y=134.75, h=110.25 -->
+              <rect x="250" y="135" width="60" height="110" fill="var(--branch-fill)" stroke="var(--branch-stroke)" stroke-width="1.5" rx="2"/>
+              <text x="280" y="262" text-anchor="middle" class="chart-tick-label">2</text>
+              <text x="280" y="129" text-anchor="middle" class="chart-value-label">490K</text>
+
+              <!-- W3: 343K → y=167.83, h=77.17 -->
+              <rect x="330" y="168" width="60" height="77" fill="var(--branch-fill)" stroke="var(--branch-stroke)" stroke-width="1.5" rx="2"/>
+              <text x="360" y="262" text-anchor="middle" class="chart-tick-label">3</text>
+              <text x="360" y="162" text-anchor="middle" class="chart-value-label">343K</text>
+
+              <!-- W4: 240K → y=191, h=54 -->
+              <rect x="410" y="191" width="60" height="54" fill="var(--branch-fill)" stroke="var(--branch-stroke)" stroke-width="1.5" rx="2"/>
+              <text x="440" y="262" text-anchor="middle" class="chart-tick-label">4</text>
+              <text x="440" y="185" text-anchor="middle" class="chart-value-label">240K</text>
+
+              <!-- W5: 168K → y=207, h=38 -->
+              <rect x="490" y="207" width="60" height="38" fill="var(--branch-fill)" stroke="var(--branch-stroke)" stroke-width="1.5" rx="2"/>
+              <text x="520" y="262" text-anchor="middle" class="chart-tick-label">5</text>
+              <text x="520" y="201" text-anchor="middle" class="chart-value-label">168K</text>
+
+              <!-- W6: 118K → y=218.5, h=26.5 -->
+              <rect x="570" y="219" width="60" height="26" fill="var(--branch-fill)" stroke="var(--branch-stroke)" stroke-width="1.5" rx="2"/>
+              <text x="600" y="262" text-anchor="middle" class="chart-tick-label">6</text>
+              <text x="600" y="213" text-anchor="middle" class="chart-value-label">118K</text>
+
+              <!-- W7: 100K (clamps to floor) → y=222.5, h=22.5 -->
+              <rect x="650" y="222" width="60" height="23" fill="var(--output-fill)" stroke="var(--output-stroke)" stroke-width="1.5" rx="2"/>
+              <text x="680" y="262" text-anchor="middle" class="chart-tick-label">7</text>
+              <text x="680" y="216" text-anchor="middle" class="chart-value-label">100K</text>
+
+            </svg>
+            <div class="chart-legend">
+              <div class="chart-legend-item"><span class="chart-legend-swatch" style="background:var(--compute-fill); border-color:var(--compute-stroke);"></span>Стартовый $V_t = V_{\text{base}}$</div>
+              <div class="chart-legend-item"><span class="chart-legend-swatch" style="background:var(--branch-fill); border-color:var(--branch-stroke);"></span>Descent $V_t \cdot (1 - r_{\text{down}})$ за окно</div>
+              <div class="chart-legend-item"><span class="chart-legend-swatch" style="background:var(--output-fill); border-color:var(--output-stroke);"></span>Achieved floor</div>
+              <div class="chart-legend-item"><span class="chart-legend-swatch" style="background:transparent; border-color:#d0294b; border-style:dashed;"></span>Floor $V_{\text{base}} \cdot m_{\min}$ = 100K</div>
+            </div>
+          </div>
+          <div class="explanation-box" style="margin-top: 14px;">
+            <div class="ex-body">
+              Без ramp-limit атакующий мог бы продавить $V_t$ до floor за один час — депрессировать сигналы по максимуму, $m(S) \to m_{\min}$, и $V_t$ мгновенно опускается до $V_{\text{base}} \cdot m_{\min}$ = 100K.<br>
+              С asymmetric ramp $r_{\text{down}} = 0.30$ протокол отказывается падать больше чем на 30% за окно. Получается формула $V_{t+1} = V_t \cdot 0.7$ — каждое окно $V_t$ обрезается в 0.7 раз. Чтобы дойти от $V_{\text{base}}$ до floor, нужно $N = \lceil \log(0.1)/\log(0.7) \rceil = 7$ окон.
+              <div class="ex-result">Это умножает cost атаки в 7 раз относительно одиночной атаки.</div>
+            </div>
+          </div>
+
+          <div class="notes" style="margin-top:14px;">
+            <p><strong>Развитие атаки по окнам.</strong> Окно 0: $V_t = V_{\text{base}}$ = 1.00M coen/час, нормальные условия. Окно 1: атакующий начал манипулировать, $V_t$ падает до $V_{\text{base}} \cdot 0.7$ = 700K. Окна 2-6: атакующий держит давление, $V_t$ продолжает сжиматься на 30% каждое окно: 490K → 343K → 240K → 168K → 118K. Окно 7: $V_t$ достигает $V_{\text{base}} \cdot m_{\min}$ = 100K, дальше падать не может по инварианту I3.</p>
+          </div>
+        </div>
+
+        <!-- ===== Panel 3: Cost components ===== -->
+        <div class="gt-section">
+          <div class="gt-section-title"><span class="gt-num">3.</span>Статьи расходов на атаку</div>
+
+          <div class="cost-question">Откуда берётся стоимость атаки?</div>
+
+          <div class="cost-cards">
+            <div class="cost-card c-capital">
+              <div class="cost-card-num">1</div>
+              <div class="cost-card-title">Деньги заперты в фейковых ордерах</div>
+              <div class="cost-card-body">
+                Чтобы spread выглядел вдвое-втрое шире нормы, атакующий выставляет на бирже большие ордера. Эти деньги вынуты из других вложений на час - можно посчитать как opportunity cost.
+              </div>
+              <div class="cost-card-math">$300K ордеров × 10% годовых ÷ 8760 часов</div>
+              <div class="cost-card-amount">≈ 30 USD/час</div>
+            </div>
+
+            <div class="cost-card c-fill">
+              <div class="cost-card-num">2</div>
+              <div class="cost-card-title">Риск, что фейковые ордера выкупят</div>
+              <div class="cost-card-body">
+                Арбитражёры замечают «странный» wide spread и могут выкупить ордера атакующего по плохой для него цене. Шанс ~1% за час, потеря ~3% от выставленного объёма.
+              </div>
+              <div class="cost-card-math">1% × $300K × 3% потери</div>
+              <div class="cost-card-amount">≈ 90 USD/час</div>
+            </div>
+
+            <div class="cost-card c-signal">
+              <div class="cost-card-num">3</div>
+              <div class="cost-card-title">Wash-trades для накрутки сигналов</div>
+              <div class="cost-card-body">
+                Spread - не единственный сигнал. Чтобы изменить ещё velocity и volatility, нужно торговать «сам с собой». Биржа берёт комиссии на каждой такой сделке.
+              </div>
+              <div class="cost-card-math">Зависит от структуры биржи (placeholder)</div>
+              <div class="cost-card-amount">≈ 200 USD/час</div>
+            </div>
+          </div>
+
+          <div class="cost-sum-row">
+            <div>
+              <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.4px; font-weight:700;">Итого за один час атаки</div>
+              <div class="cost-sum-stack">
+                <div class="cost-piece capital" style="width: 9.4%;">30</div>
+                <div class="cost-piece fill" style="width: 28.1%;">90</div>
+                <div class="cost-piece signal" style="width: 62.5%;">200</div>
+              </div>
+            </div>
+            <div class="cost-sum-total">320 USD<small>за один час</small></div>
+          </div>
+
+          <div class="cost-question" style="margin-top:18px;">Почему атака длится не 1, а 7 часов?</div>
+
+          <div class="explanation-box">
+            <div class="ex-body">
+              Ramp limit не даёт $V_t$ упасть больше чем на 30% за окно. Чтобы довести cap с baseline до floor ($V_{\text{base}} \cdot m_{\min}$), атакующему нужно держать манипуляцию 7 часов подряд. Один час не вынесет cap ниже $0.7 \cdot V_{\text{base}}$.
+              <div class="ex-result">320 USD/час × 7 часов = 2,240 USD до полного floor.</div>
+            </div>
+          </div>
+
+          <div class="cost-question" style="margin-top:18px;">Что если рынок не тонкий?</div>
+
+          <div class="market-compare">
+            <div class="market-cell thin">
+              <div class="market-cell-label">Тонкий рынок</div>
+              <div class="market-cell-name">Глубина биржи $B$ = 100K USD</div>
+              <div class="market-cell-detail">наш placeholder для расчёта</div>
+              <div class="market-cell-amount">2,240 USD</div>
+            </div>
+            <div class="market-arrow">
+              <div>глубина</div>
+              <div class="arrow-mult">× 100</div>
+              <div>атака</div>
+            </div>
+            <div class="market-cell deep">
+              <div class="market-cell-label">Мейнстрим биржа</div>
+              <div class="market-cell-name">Глубина биржи $B$ = 10M USD</div>
+              <div class="market-cell-detail">реалистичный масштаб</div>
+              <div class="market-cell-amount">224,000 USD</div>
+            </div>
+          </div>
+
+          <div class="notes" style="margin-top:14px;">
+            <p><strong>Главный вывод.</strong> Стоимость атаки линейно растёт с глубиной рынка coen. На тонком рынке защита слабая независимо от того, как откалиброваны $r_{\text{down}}$, $k$, $S_0$, $m_{\min}$. Калибровка параметров работает как вторичный рычаг; первичный - ликвидность coen на крупных биржах.</p>
+          </div>
+        </div>
+
+        <!-- ===== Panel 4: Sensitivity ===== -->
+        <div class="gt-section">
+          <div class="gt-section-title"><span class="gt-num">4.</span>Четыре главных параметра калибровки протокола</div>
+
+          <div class="cost-question">Какие 4 параметры влияют на стоимость атаки?</div>
+
+          <div class="sens-cards">
+
+            <div class="sens-card dim-1">
+              <div class="sens-card-header">
+                <span class="sens-card-symbol">$r_{\text{down}}$</span>
+                <span class="sens-card-name">downward ramp cap</span>
+              </div>
+              <div class="sens-card-meaning">На сколько процентов $V_t$ может упасть за одно окно. Placeholder = 30%.</div>
+              <div class="sens-card-direction">
+                <strong>Меньше → дороже атака.</strong> Если $V_t$ может падать только на 10% вместо 30%, атакующему нужно не 7 окон до floor, а ~22. Стоимость растёт втрое.
+              </div>
+              <div class="sens-card-formula">↓ $r_{\text{down}}$ → ↑ $N$ окон → ↑ $C_{\text{total}}$</div>
+              <div class="sens-card-tradeoff"><strong>Trade-off:</strong> при слишком малом $r_{\text{down}}$ протокол не успеет сжаться, когда стресс настоящий, и capacity останется высокой во время реального обвала.</div>
+            </div>
+
+            <div class="sens-card dim-2">
+              <div class="sens-card-header">
+                <span class="sens-card-symbol">$k$</span>
+                <span class="sens-card-name">sensitivity coefficient</span>
+              </div>
+              <div class="sens-card-meaning">Насколько резкая sigmoid возле порога $S_0$. Чем выше $k$, тем чувствительнее $m(S)$ к небольшим изменениям сигналов. Placeholder = 10.</div>
+              <div class="sens-card-direction">
+                <strong>Меньше → дороже атака.</strong> Меньший $k$ → sigmoid более плоская → одно и то же изменение сигналов даёт меньший сдвиг $m(S)$. Атакующему нужно сильнее раздувать spread / velocity.
+              </div>
+              <div class="sens-card-formula">↓ $k$ → меньше отклика на сигналы → ↑ $C_{\text{signal}}$</div>
+              <div class="sens-card-tradeoff"><strong>Trade-off:</strong> слишком малый $k$ делает протокол «вялым», поскольку настоящий стресс не отделяется от шума, из-за чего реакция запаздывает.</div>
+            </div>
+
+            <div class="sens-card dim-3">
+              <div class="sens-card-header">
+                <span class="sens-card-symbol">$S_0$</span>
+                <span class="sens-card-name">stress midpoint</span>
+              </div>
+              <div class="sens-card-meaning">Уровень composite stress score, при котором Firerate «включается» (середина sigmoid). Placeholder = 0.4.</div>
+              <div class="sens-card-direction">
+                <strong>Больше → дороже атака.</strong> Высокий $S_0$ → активация требует более сильного сдвига сигналов. Атакующему дольше «разгонять» $S$ до порога.
+              </div>
+              <div class="sens-card-formula">↑ $S_0$ → активация позже → ↑ $C_{\text{signal}}$</div>
+              <div class="sens-card-tradeoff"><strong>Trade-off:</strong> слишком большой $S_0$ задержит активацию на реальном стрессе. Пока порог пройден, рынок успеет обвалиться.</div>
+            </div>
+
+            <div class="sens-card dim-4">
+              <div class="sens-card-header">
+                <span class="sens-card-symbol">$m_{\min}$</span>
+                <span class="sens-card-name">minimum multiplier</span>
+              </div>
+              <div class="sens-card-meaning">Floor: насколько низко $m(S)$ может опуститься. $V_t$ никогда не падает ниже $V_{\text{base}} \cdot m_{\min}$. Placeholder = 0.10.</div>
+              <div class="sens-card-direction">
+                <strong>Больше → меньше максимальный damage.</strong> Высокий $m_{\min}$ → floor выше → атакующий ограничен в максимальном вреде, который может нанести (capacity не зажимается до нуля).
+              </div>
+              <div class="sens-card-formula">↑ $m_{\min}$ → max damage ограничен (не cost напрямую)</div>
+              <div class="sens-card-tradeoff"><strong>Trade-off:</strong> слишком высокий $m_{\min}$ оставляет протокол уязвимым на реальном шоке, поскольку в этом случае capacity не сжимается до защитного уровня.</div>
+            </div>
+
+          </div>
+
+          <div class="notes" style="margin-top:14px;">
+            <p><strong>Главные defensive knobs.</strong> $r_{\text{down}}$ и $k$ оба усиливают защиту при уменьшении, и оба имеют trade-off с responsiveness к реальному стрессу. $S_0$ обычно фиксируется выравниванием с порогом активации (§III.5), не свободный параметр. $m_{\min}$ ограничивает не cost атаки, а её максимальный эффект. Калибровка в данном случае выполняет балансирование между атакой и реальным стрессом.</p>
+          </div>
+        </div>
+
+        <!-- ===== Panel 5: Model A vs B ===== -->
+        <div class="gt-section">
+          <div class="gt-section-title"><span class="gt-num">5.</span>Модель A vs Модель B: почему B труднее атаковать</div>
+
+          <div class="cost-question">Две стратегии расчёта per-token ставки $r$</div>
+
+          <div class="ab-grid">
+            <div class="ab-panel a">
+              <div class="ab-panel-title">Модель A</div>
+              <div class="ab-panel-subtitle">$\operatorname{base\_rate} = m(S)$ — universal stress penalty</div>
+
+              <div class="ab-panel-intro">
+                <strong>Как работает:</strong> ставка $r$ всегда зависит от стресс-мультипликатора. Если стресс есть, то штрафуются все, кто майнит, независимо от размера батча.
+              </div>
+
+              <div class="ab-panel-section">При атаке на $m(S)$</div>
+              <div class="ab-panel-content">
+                Атакующий депрессирует $m(S)$ → одновременно падает и часовой потолок $V_t$, и ставка $r$. Одна манипуляция бьёт по двум показателям.
+              </div>
+              <div class="ab-panel-formula">$V_t \downarrow \beta$, $\operatorname{base\_rate} \downarrow \beta$ → damage = $(1 - \beta)$ всегда</div>
+
+              <div class="ab-panel-section">Стоимость атаки</div>
+              <div class="ab-panel-content">
+                Только signal manipulation — то, что мы посчитали в §3.
+              </div>
+              <div class="ab-panel-formula">$C_{\text{A}} = N \cdot (C_{\text{cap}} + C_{\text{fill}} + C_{\text{signal}})$</div>
+              <div class="ab-panel-formula" style="color:var(--output-stroke); font-weight:700;">≈ 2,240 USD (placeholder)</div>
+            </div>
+
+            <div class="ab-panel b">
+              <div class="ab-panel-title">Модель B</div>
+              <div class="ab-panel-subtitle">$\operatorname{base\_rate} = 1$ — cap-only penalty</div>
+
+              <div class="ab-panel-intro">
+                <strong>Как работает:</strong> ставка $r$ всегда равна 1, пока batch не упирается в cap. Штрафуются только те, кто залил тикетов больше allocation.
+              </div>
+
+              <div class="ab-panel-section">При атаке на $m(S)$</div>
+              <div class="ab-panel-content">
+                Атакующий депрессирует $m(S)$ → падает только $V_t$. Ставка $r$ остаётся 1 (не зависит от $m(S)$). Урон возникает только если батч достаточно большой, чтобы упереться в cap.
+              </div>
+              <div class="ab-panel-formula">$V_t \downarrow \beta$, $\operatorname{base\_rate}$ = 1 → damage = 0 при свободном спросе</div>
+
+              <div class="ab-panel-section">Стоимость атаки</div>
+              <div class="ab-panel-content">
+                Signal manipulation <strong>+</strong> накопить source tokens (Gratis/Promis), чтобы залить batch сверх cap. Эти tokens сжигаются при settlement (инвариант I7) — атакующий теряет всю инвестицию в tokens.
+              </div>
+              <div class="ab-panel-formula">$C_{\text{B}} = N \cdot (\ldots) + C_{\text{tokens}}$</div>
+              <div class="ab-panel-formula" style="color:var(--signal-stroke); font-weight:700;">≈ 2,240 + 350,000 USD на source tokens</div>
+            </div>
+          </div>
+
+          <div class="ab-verdict">
+            <strong>Главный вывод.</strong> Модель B квадратично дороже атаковать. Под A атакующему хватит обычной биржевой манипуляции. Под B он вынужден ещё инвестировать в актив (Gratis/Promis), который сам же сжигает в атаке. С точки зрения attack-surface B доминирует. UX-нарратив «налог на тех, кто торопится» в Модели A для пользователя может быть понятнее, но количественно Модель B безопаснее.
+          </div>
+        </div>
+
+        <!-- ===== Panel 6: Connections ===== -->
+        <div class="gt-section">
+          <div class="gt-section-title"><span class="gt-num">6.</span>Связь с другими Open Questions</div>
+          <div class="connections-grid">
+            <div class="connection-card">
+              <div class="conn-title">Settlement time-indexing (§III.4)</div>
+              Под (b) интерпретацией $\tau = 1$ час. Под альтернативами (a) snapshot, (c) cancellation-only - $\tau$ падает в 2-60 раз, $C_{\text{capital}}$ соответственно тоже. Это <strong>усиливает аргумент в пользу (b)</strong>: только под (b) cool-down вносит вклад в стоимость атаки.
+            </div>
+            <div class="connection-card">
+              <div class="conn-title">Cold-start anchor (§V.1.3, §IX.2)</div>
+              Под вариантом (a) stress-adjusted атака «trigger activation once» дёшева: одного цикла активации достаточно, чтобы запереть протокол около $0.55 \cdot V_{\text{base}}$ на ~7 окон. <strong>Вариант (d) baseline anchor закрывает этот вектор</strong> — рекомендация Research после §VI.8.
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="notes">
+        <p><strong>Что у нас есть для калибровки.</strong> Параметрический скелет (формулы и worked example на placeholder market depth $B = \$100\text{K}$). Для phase 2 нужны: реальная глубина $B$ на mainstream биржах, эмпирическая оценка $P_{\text{fill}}$ и $\delta$ на исторических данных, threat model по классам атакующих с реалистичными $B_{\text{attacker}}$.</p>
+        <p><strong>Где смотреть в Research.</strong> §VI.1 actor model, §VI.2 формулы компонент, §VI.3 multi-window descent, §VI.4 breakeven, §VI.5 sensitivity, §VI.6 Model A vs B, §VI.7 worked example, §VI.8 связь с §III.4 и §V.1.3.</p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" integrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUb0ZY0l8" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
+<script>
+  // Render LaTeX in prose blocks and HTML-based diagrams (tabs 2-3).
+  // SVG content (tab 1) is deliberately kept in plain monospace and is excluded.
+  function renderMath(root) {
+    if (typeof renderMathInElement !== 'function') return;
+    root.querySelectorAll('.lead, .notes, .diagram-html').forEach(el => {
+      renderMathInElement(el, {
+        delimiters: [
+          {left: '$$', right: '$$', display: true},
+          {left: '$',  right: '$',  display: false}
+        ],
+        throwOnError: false,
+        ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'option', 'svg']
+      });
+    });
+  }
+  renderMath(document);
+
+  // Tab switching
+  document.querySelectorAll('.tab-button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.tab).classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

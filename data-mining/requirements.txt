@@ -1,0 +1,15 @@
+# Core
+pandas>=2.0
+numpy>=1.24
+pyarrow>=14.0
+requests>=2.31
+
+# Equities / commodities / FX dailies
+yfinance>=0.2.40
+fredapi>=0.5.1
+
+# Crypto aggregated history
+# (CryptoCompare and Binance S3 are hit over plain HTTP, no SDK required)
+
+# Optional paid / intraday (second pass only, not needed for free first pass)
+# polygon-api-client>=1.13

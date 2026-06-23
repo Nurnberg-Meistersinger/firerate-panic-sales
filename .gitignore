@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Dukascopy hourly cache (regenerable from run.py; can grow to GBs)
+data-mining/data/raw/dukascopy/
+
+# Stale snapshot artifacts that may be created by intermediate runs
+data-mining/data/output/*_full_nospread_first_pass*
+data-mining/data/output/*_with_crypto_minute_overlay*
+data-mining/data/output/*.sha256
+data-mining/data/output/*.tar.gz
+data-mining/data/output/README_*.md

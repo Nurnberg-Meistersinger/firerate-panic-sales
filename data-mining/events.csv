@@ -1,0 +1,31 @@
+event_id,event_date,name,asset_class,primary_source,symbol,event_type,window_start,window_end,peak_direction,notes
+cr-2014-mtgox,2014-02-24,Mt.Gox collapse,crypto,cryptocompare,BTC,tech_failure,2014-02-01,2014-03-15,up,No spread available; v/sigma/q only. yfinance BTC-USD starts 2014-09 so use CryptoCompare.
+cr-2017-btctop,2017-12-17,BTC parabolic top and crash,crypto,binance_s3,BTCUSDT,macro_shock,2017-12-01,2018-02-15,up,Full set from 2017+ Binance minute data.
+cr-2018-bchfork-abc,2018-11-15,BCH hashwar fork (ABC leg),crypto,binance_s3,BCHABCUSDT,tech_failure,2018-11-01,2018-12-15,up,ABC chain. Fork split BCH into ABC/SV legs; this row tracks the ABC leg only.
+cr-2018-bchfork-sv,2018-11-15,BCH hashwar fork (SV leg),crypto,binance_s3,BCHSVUSDT,tech_failure,2018-11-01,2018-12-15,up,SV chain. Symbol may delist; fallbacks may use BSVUSDT after rebrand.
+cr-2019-tether,2019-04-26,Bitfinex/Tether disclosure,crypto,binance_s3,BTCUSDT,tech_failure,2019-04-01,2019-05-15,up,Full set.
+cr-2020-covid,2020-03-12,COVID crash crypto,crypto,binance_s3,BTCUSDT,macro_shock,2020-02-20,2020-04-15,up,Full set incl L2. Also ETHUSDT.
+cr-2021-elonchina,2021-05-19,Elon tweets + China mining ban,crypto,binance_s3,BTCUSDT,macro_shock,2021-04-15,2021-06-15,up,Full set.
+cr-2022-luna,2022-05-09,LUNA/UST collapse,crypto,binance_s3,LUNAUSDT,liquidity_crisis,2022-05-01,2022-05-31,up,Late-day spread distorted by low liquidity. Also USTUSDT if present.
+cr-2022-celsius,2022-06-13,Celsius/3AC cascade,crypto,binance_s3,BTCUSDT,liquidity_crisis,2022-06-01,2022-07-15,up,Full set. Also ETHUSDT.
+cr-2022-ftx,2022-11-08,FTX collapse,crypto,binance_s3,BTCUSDT,tech_failure,2022-11-01,2022-11-30,up,FTT post-halt data sparse; track FTTUSDT via CryptoCompare fallback.
+cr-2023-usdc,2023-03-11,USDC depeg / SVB weekend,crypto,binance_s3,USDCUSDT,liquidity_crisis,2023-03-08,2023-03-20,up,Depeg = price drift from 1.00; v captures it via abs returns. q spiked up (panic trading) during the weekend.
+cr-2023-curve,2023-07-30,Curve reentrancy exploit,crypto,binance_s3,CRVUSDT,manipulation,2023-07-25,2023-08-10,up,Catalog said 2023-06 but actual exploit 2023-07-30; window set to real date. DEX data needs separate parsing.
+cr-2024-etf,2024-01-11,Spot ETF approval volatility,crypto,binance_s3,BTCUSDT,macro_shock,2024-01-01,2024-03-31,up,Full set.
+eq-1987-blackmon,1987-10-19,Black Monday,equity,yahoo,^GSPC,macro_shock,1987-10-01,1987-11-15,up,Daily only; no intraday/spread. Also ^DJI.
+eq-2008-lehman,2008-09-15,Lehman week,equity,yahoo,^GSPC,liquidity_crisis,2008-09-01,2008-10-31,up,Daily + FRED VIXCLS. Intraday spread only via WRDS.
+eq-2010-flashcrash,2010-05-06,Flash Crash,equity,yahoo,^GSPC,tech_failure,2010-05-01,2010-05-20,up,Daily masks the event; needs Polygon intraday for real signal.
+eq-2011-downgrade,2011-08-08,US credit downgrade,equity,yahoo,^GSPC,macro_shock,2011-07-25,2011-08-31,up,Full set on daily. Also ^VIX.
+eq-2015-chinadev,2015-08-24,China devaluation + ETF flash,equity,yahoo,^GSPC,macro_shock,2015-08-15,2015-09-10,up,Intraday only via Polygon.
+eq-2018-volmageddon,2018-02-05,Volmageddon,equity,yahoo,^VIX,tech_failure,2018-01-25,2018-02-20,up,XIV delisted; track ^VIX and SVXY. CBOE intraday VIX available free.
+eq-2020-covid,2020-03-16,COVID equity crashes,equity,yahoo,^GSPC,macro_shock,2020-02-20,2020-04-15,up,Full set on daily; intraday via Polygon. Also ^VIX.
+eq-2022-ukraine,2022-02-24,Ukraine war onset,equity,yahoo,^STOXX50E,macro_shock,2022-02-18,2022-03-15,up,"Also ^GSPC, energy."
+eq-2023-svb,2023-03-10,SVB / banking crisis,equity,yahoo,KRE,liquidity_crisis,2023-03-08,2023-03-31,up,SIVB delisted; use KRE regional-bank ETF + ^GSPC.
+eq-2024-yencarry,2024-08-05,Yen carry unwind,equity,yahoo,^N225,macro_shock,2024-07-30,2024-08-15,up,"Also ^GSPC, ^NDX."
+fx-2008-goldflight,2008-10-10,Flight to gold,commodity,yahoo,GC=F,macro_shock,2008-09-01,2008-11-30,up,Daily only this far back; no tick spread. FRED gold fallback.
+fx-2013-goldcrash,2013-04-15,Gold flash crash,commodity,dukascopy,XAUUSD,manipulation,2013-04-08,2013-04-20,up,Tick bid/ask via Dukascopy. CME daily fallback.
+fx-2015-snb,2015-01-15,SNB EUR/CHF unpeg,fx,dukascopy,EURCHF,tech_failure,2015-01-10,2015-01-25,up,Cleanest flash crash; event spans ~10 min. TrueFX fallback.
+fx-2016-brexit,2016-06-24,Brexit GBP crash,fx,dukascopy,GBPUSD,macro_shock,2016-06-20,2016-07-10,up,Tick via Dukascopy/TrueFX.
+fx-2019-jpyflash,2019-01-03,JPY flash crash,fx,dukascopy,USDJPY,tech_failure,2018-12-28,2019-01-10,up,Catalog said 2019-08 but JPY flash was 2019-01-03; window set to real date. TrueFX/HistData fallback.
+fx-2020-wti,2020-04-20,WTI negative price,commodity,yahoo,CL=F,tech_failure,2020-04-01,2020-04-30,up,Spread unavailable; price+volume only. Settlement via CME.
+fx-2022-ldi,2022-09-28,GBP gilt LDI crisis,fx,dukascopy,GBPUSD,liquidity_crisis,2022-09-20,2022-10-15,up,GBP tick via Dukascopy; gilt yields via FRED. Gilt spread needs Bloomberg/WRDS.

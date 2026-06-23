@@ -1,0 +1,9 @@
+event_id,asset_class,resolution,source_used,symbol_used,signal,baseline,peak,peak_ratio,time_to_peak_h,duration_above_h,recovery_h,n_obs
+cr-2022-luna,crypto,minute,binance-api,LUNAUSDT,v,0.000678,0.805849,1188.627,280.75,137.05,1.45,17320
+cr-2019-tether,crypto,minute,binance-api,BTCUSDT,v,0.000198,0.048483,245.469,70.72,469.6,0.67,63361
+cr-2020-covid,crypto,minute,binance-api,BTCUSDT,v,0.00034,0.075106,221.214,514.78,566.08,0.37,79073
+cr-2022-ftx,crypto,minute,binance-api,BTCUSDT,v,0.000227,0.044764,197.196,187.57,237.75,0.35,41761
+cr-2017-btctop,crypto,minute,binance-api,BTCUSDT,v,0.000526,0.062977,119.658,1689.97,980.18,0.25,107131
+cr-2021-elonchina,crypto,minute,binance-api,BTCUSDT,v,0.000516,0.059738,115.666,829.35,529.87,0.1,87407
+cr-2024-etf,crypto,minute,binance-api,BTCUSDT,v,0.000273,0.028054,102.781,1409.47,696.13,0.32,129601
+cr-2022-celsius,crypto,minute,binance-api,BTCUSDT,v,0.00045,0.022701,50.459,414.67,293.23,0.27,63361
