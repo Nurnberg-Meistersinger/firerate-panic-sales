@@ -1,0 +1,11 @@
+token_id,name,token_address,quote_symbol,notes
+bl-dex-pepe,Pepe,0x6982508145454ce325ddbe47a25d4ec3d2311933,WETH,Launched 2023-04-17; benchmark ETH memecoin
+bl-dex-mog,Mog Coin,0xaaee1a9723aadb7afa2810263653a34ba2c21c7a,WETH,Launched 2023-07-11; Solana-copy meme on Ethereum
+bl-dex-wld,Worldcoin,0x163f8c2467924be0ae7b5347228cabf260318753,WETH,Launched 2023-07-24; identity network
+bl-dex-turbo,Turbo,0xa35923162c49cf95e6bf26623385eb431ad920d3,WETH,Launched 2023-05-01; AI-generated meme
+bl-dex-banana,Banana Gun,0x38e68a37e401f7271568cecaac63c6b1e19130b4,WETH,Launched 2023-09-05; trading bot token
+bl-dex-neiro,First Neiro on Ethereum,0x812ba41e071c7b7fa4ebcfb62df5f45f6fa853ee,WETH,Launched 2024-07-18; Kabosu dog meme
+bl-dex-unibot,Unibot,0x25127685dc35d4dc96c7feac7370749d004c5040,WETH,Launched 2023-05; Telegram trading bot token
+bl-dex-blur,Blur,0x5283d291dbcf85356a21ba090e6db59121208b44,WETH,Launched 2023-02; NFT marketplace
+bl-dex-arkm,Arkham,0x6e2a43be0b1d33b726f0ca3b8de60b3482b8b050,WETH,Launched 2023-08; on-chain intelligence
+bl-dex-mav,Maverick Protocol,0x7448c7456a97769f6cd04f1e83a4a23ccdc46abd,WETH,Launched 2023-06; DeFi liquidity engine
