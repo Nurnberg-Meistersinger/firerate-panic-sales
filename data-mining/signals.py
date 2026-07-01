@@ -133,26 +133,31 @@ def build_signals(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Episode-local helpers
 # ---------------------------------------------------------------------------
-def _baseline(series: pd.Series, window_start: pd.Timestamp) -> float:
+def _baseline(series: pd.Series, window_start: pd.Timestamp
+              ) -> tuple[float, str]:
     """Median of the signal over the 30 days before the window opens.
 
-    For sparse signals (e.g. velocity on illiquid pairs where many minute
-    bars have no trade and thus zero return), the strict median can be 0,
-    which makes the peak/baseline ratio undefined. We fall back to the
-    median of the non-zero subset; as a last resort, the mean.
+    Returns (baseline_value, source_tag). source_tag is one of:
+      "median"          normal case, strict median of pre-window sample
+      "nonzero_median"  strict median was 0; used median of positives
+      "mean"            no positives; fell back to mean
+      "empty"           no pre-window data at all
+      "undefined"       even mean was 0 or non-positive
     """
     base_start = window_start - pd.Timedelta(days=C.BASELINE_DAYS)
     base = series.loc[base_start:window_start].dropna()
     if base.empty:
-        return np.nan
+        return np.nan, "empty"
     med = float(base.median())
     if med > 0:
-        return med
+        return med, "median"
     nonzero = base[base > 0]
     if not nonzero.empty:
-        return float(nonzero.median())
+        return float(nonzero.median()), "nonzero_median"
     m = float(base.mean())
-    return m if m > 0 else np.nan
+    if m > 0:
+        return m, "mean"
+    return np.nan, "undefined"
 
 
 def _episode_bounds(win: pd.Series, peak_ts: pd.Timestamp,
@@ -212,11 +217,13 @@ def event_metrics(signals: pd.DataFrame, window_start: str, window_end: str,
         full = signals[name].dropna()
         if full.empty:
             continue
-        baseline = _baseline(full, ws)
+        baseline, baseline_source = _baseline(full, ws)
         win = full.loc[ws:we]
         if win.empty or not np.isfinite(baseline) or baseline == 0:
-            rows.append(dict(signal=name, baseline=baseline, peak=np.nan,
-                             peak_ratio=np.nan, time_to_peak_h=np.nan,
+            rows.append(dict(signal=name, baseline=baseline,
+                             baseline_source=baseline_source,
+                             peak=np.nan, peak_ratio=np.nan,
+                             time_to_peak_h=np.nan,
                              duration_above_h=np.nan, recovery_h=np.nan,
                              episode_start=pd.NaT, episode_end=pd.NaT,
                              n_obs=len(win)))
@@ -278,6 +285,7 @@ def event_metrics(signals: pd.DataFrame, window_start: str, window_end: str,
         rows.append(dict(
             signal=name,
             baseline=round(baseline, 6),
+            baseline_source=baseline_source,
             peak=round(float(peak_val), 6),
             peak_ratio=round(float(ratio), 3) if np.isfinite(ratio) else np.nan,
             time_to_peak_h=round(ttp_h, 2) if np.isfinite(ttp_h) else np.nan,

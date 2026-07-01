@@ -81,21 +81,45 @@ def within_event_correlations(events: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _bootstrap_median_ci(values: pd.Series, n_boot: int = 2000,
+                         seed: int = 42) -> tuple[float, float]:
+    """Percentile bootstrap 95% CI for the median of `values`.
+
+    Returns (lower_95, upper_95). With small n (<10) the CI is intentionally
+    wide, which is the honest signal to the reader.
+    """
+    import numpy as np
+    arr = values.dropna().values
+    if len(arr) == 0:
+        return float("nan"), float("nan")
+    rng = np.random.default_rng(seed)
+    boots = rng.choice(arr, size=(n_boot, len(arr)), replace=True)
+    medians = np.median(boots, axis=1)
+    return (float(np.percentile(medians, 2.5)),
+            float(np.percentile(medians, 97.5)))
+
+
 def within_event_summary(within: pd.DataFrame) -> pd.DataFrame:
-    """Median, range, and count of correlations per (signal_a, signal_b)."""
+    """Median, range, and count of correlations per (signal_a, signal_b),
+    with 95% bootstrap CIs so small-n findings show their uncertainty."""
     if within.empty:
         return pd.DataFrame()
     grp = within.groupby(["signal_a", "signal_b"])
-    summary = grp.agg(
-        n_events=("event_id", "count"),
-        median_pearson=("pearson", "median"),
-        median_spearman=("spearman", "median"),
-        min_spearman=("spearman", "min"),
-        max_spearman=("spearman", "max"),
-    ).reset_index()
-    for col in ["median_pearson", "median_spearman", "min_spearman", "max_spearman"]:
-        summary[col] = summary[col].round(3)
-    return summary
+
+    rows = []
+    for (a, b), sub in grp:
+        lo, hi = _bootstrap_median_ci(sub["spearman"])
+        rows.append({
+            "signal_a": a, "signal_b": b,
+            "n_events": len(sub),
+            "median_pearson": round(float(sub["pearson"].median()), 3),
+            "median_spearman": round(float(sub["spearman"].median()), 3),
+            "spearman_ci95_lo": round(lo, 3),
+            "spearman_ci95_hi": round(hi, 3),
+            "min_spearman": round(float(sub["spearman"].min()), 3),
+            "max_spearman": round(float(sub["spearman"].max()), 3),
+        })
+    return pd.DataFrame(rows)
 
 
 def across_event_correlations(metrics: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -118,12 +142,39 @@ def across_event_correlations(metrics: pd.DataFrame) -> tuple[pd.DataFrame, pd.D
     # Spearman via ranks to avoid the scipy dependency.
     spearman_mat = pivot_full.rank().corr(method="pearson").round(3)
 
+    # Bootstrap 95% CI for each cell of the spearman matrix. Resample events
+    # (rows) with replacement 2000 times, recompute correlations, take
+    # 2.5%/97.5% percentiles. Small-n events (<10) will show wide CIs.
+    import numpy as np
+    n_events = len(pivot_full)
+    rng = np.random.default_rng(42)
+    n_boot = 2000
+    boot_mats = np.zeros((n_boot, len(pivot_full.columns),
+                          len(pivot_full.columns)))
+    for i in range(n_boot):
+        idx = rng.integers(0, n_events, size=n_events)
+        sample = pivot_full.iloc[idx].rank().corr(method="pearson").values
+        boot_mats[i] = sample
+    spearman_ci_lo = pd.DataFrame(
+        np.nanpercentile(boot_mats, 2.5, axis=0).round(3),
+        index=pivot_full.columns, columns=pivot_full.columns)
+    spearman_ci_hi = pd.DataFrame(
+        np.nanpercentile(boot_mats, 97.5, axis=0).round(3),
+        index=pivot_full.columns, columns=pivot_full.columns)
+    # Combine into single readable frame with "point [lo, hi]" strings
+    spearman_with_ci = pd.DataFrame(
+        [[f"{spearman_mat.iat[i,j]:.2f} [{spearman_ci_lo.iat[i,j]:.2f}, "
+          f"{spearman_ci_hi.iat[i,j]:.2f}]"
+          for j in range(len(spearman_mat.columns))]
+         for i in range(len(spearman_mat.index))],
+        index=spearman_mat.index, columns=spearman_mat.columns)
+
     coverage = pd.DataFrame({
         "signal": pivot.columns,
         "n_events_with_signal": pivot.notna().sum().values,
         "n_events_in_corr": pivot_full.notna().sum().values,
     })
-    return pearson_mat, spearman_mat, coverage
+    return pearson_mat, spearman_mat, coverage, spearman_with_ci
 
 
 def main() -> int:
@@ -140,9 +191,10 @@ def main() -> int:
     summary.to_csv(out_dir / "correlations_within_event_summary.csv", index=False)
 
     # 2. Across-event
-    pearson_mat, spearman_mat, coverage = across_event_correlations(metrics)
+    pearson_mat, spearman_mat, coverage, spearman_with_ci = across_event_correlations(metrics)
     pearson_mat.to_csv(out_dir / "correlations_across_events_pearson.csv")
     spearman_mat.to_csv(out_dir / "correlations_across_events_spearman.csv")
+    spearman_with_ci.to_csv(out_dir / "correlations_across_events_spearman_ci95.csv")
     coverage.to_csv(out_dir / "correlations_across_events_coverage.csv", index=False)
 
     # Console summary
