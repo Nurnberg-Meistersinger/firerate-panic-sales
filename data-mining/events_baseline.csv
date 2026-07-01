@@ -1,0 +1,11 @@
+token_id,name,symbol,listing_date,window_days,initial_mcap_usd_m,sector,notes
+bl-tia,Celestia,TIAUSDT,2023-10-31,180,40,L1_modular,Modular blockchain layer; first 6 months capture initial airdrop distribution and price discovery
+bl-jto,Jito,JTOUSDT,2023-12-07,180,45,DeFi_liquid_staking,Solana liquid staking; heavy Solana ecosystem interest early
+bl-pyth,Pyth Network,PYTHUSDT,2023-11-20,180,50,oracle,Cross-chain oracle; airdrop distribution shaped early liquidity
+bl-sei,Sei,SEIUSDT,2023-08-15,180,100,L1_trading,Trading-optimized L1; borderline high mcap at listing
+bl-ordi,Ordinals,ORDIUSDT,2023-11-07,180,30,BRC20_meme,First BRC-20 token on Binance; retail-driven volatile
+bl-jup,Jupiter,JUPUSDT,2024-01-31,180,95,DeFi_dex_aggregator,Solana DEX aggregator; large airdrop
+bl-wif,dogwifhat,WIFUSDT,2024-03-05,180,60,meme,Solana memecoin; retail-driven
+bl-ena,Ethena,ENAUSDT,2024-04-02,180,80,DeFi_synthetic,Synthetic dollar protocol; strong Ethereum ecosystem attention
+bl-w,Wormhole,WUSDT,2024-04-03,180,90,bridge,Cross-chain bridge; airdrop distribution
+bl-zro,LayerZero,ZROUSDT,2024-06-20,180,90,cross_chain_infra,Cross-chain messaging protocol; large airdrop distribution shaped early liquidity
