@@ -169,6 +169,116 @@ def fetch_one(row: pd.Series, args: argparse.Namespace) -> pd.DataFrame:
     return pd.DataFrame()
 
 
+def _merge_bookticker(row: pd.Series, raw: pd.DataFrame,
+                      args: argparse.Namespace) -> pd.DataFrame:
+    """Pull Binance bookTicker for the same window and join into raw.
+
+    Only runs for crypto + minute resolution + when raw has data. Adds
+    bid/ask/bid_qty/ask_qty columns aligned to raw's minute timestamps.
+    """
+    if args.resolution != "minute":
+        return raw
+    if row["asset_class"] != "crypto":
+        return raw
+    if raw.empty:
+        return raw
+
+    # Use the symbol that was actually used in the main fetch (proxy-aware)
+    symbol = raw.attrs.get("symbol_used") or row["symbol"]
+    if not symbol or symbol.endswith("USD") and not symbol.endswith("USDT"):
+        # bookTicker availability is mostly for USDT pairs on Binance Vision
+        pass
+
+    start = raw.index.min().strftime("%Y-%m-%d")
+    end = raw.index.max().strftime("%Y-%m-%d")
+
+    try:
+        bt = F.fetch_binance_bookticker(symbol, start, end)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  [bookticker] {symbol}: failed: {exc}")
+        return raw
+
+    if bt is None or bt.empty:
+        print(f"  [bookticker] {symbol}: no data in window")
+        return raw
+
+    # Align both to minute index, left join on raw
+    raw_keys = raw.index.floor("min")
+    bt_keys = bt.index.floor("min")
+    bt_aligned = bt[~bt_keys.duplicated(keep="last")].copy()
+    bt_aligned.index = bt_keys[~bt_keys.duplicated(keep="last")]
+
+    merged = raw.copy()
+    merged.index = raw_keys
+    # Drop any potential dup minutes in raw (rare but safe)
+    merged = merged[~merged.index.duplicated(keep="last")]
+    cols = [c for c in ["bid", "ask", "bid_qty", "ask_qty"] if c in bt_aligned.columns]
+    merged = merged.join(bt_aligned[cols], how="left")
+
+    coverage = float(merged["bid"].notna().mean()) if "bid" in merged.columns else 0.0
+    merged.attrs = dict(raw.attrs)
+    merged.attrs["bookticker_symbol"] = symbol
+    merged.attrs["bookticker_coverage"] = coverage
+    existing_note = merged.attrs.get("quality_note", "") or ""
+    merged.attrs["quality_note"] = (existing_note +
+                                    f"; bookticker_cov={coverage:.1%}").strip("; ")
+    print(f"  [bookticker] {symbol}: coverage {coverage:.1%} of {len(merged)} minute bars")
+    return merged
+
+
+def _merge_aggtrades(row: pd.Series, raw: pd.DataFrame,
+                     args: argparse.Namespace) -> pd.DataFrame:
+    """Pull Binance aggTrades and merge a per-minute effective-spread proxy.
+
+    Adds s_eff (bps), agg_volume, n_trades columns. signals.py uses s_eff
+    as a fallback for the s signal when real bid/ask is not present.
+    """
+    if args.resolution != "minute":
+        return raw
+    if row["asset_class"] != "crypto":
+        return raw
+    if raw.empty:
+        return raw
+
+    symbol = raw.attrs.get("symbol_used") or row["symbol"]
+    start = raw.index.min().strftime("%Y-%m-%d")
+    end = raw.index.max().strftime("%Y-%m-%d")
+
+    try:
+        at = F.fetch_binance_aggtrades(symbol, start, end)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  [aggtrades] {symbol}: failed: {exc}")
+        return raw
+
+    if at is None or at.empty:
+        print(f"  [aggtrades] {symbol}: no data in window")
+        return raw
+
+    raw_keys = raw.index.floor("min")
+    at_keys = at.index.floor("min")
+    at_aligned = at[~at_keys.duplicated(keep="last")].copy()
+    at_aligned.index = at_keys[~at_keys.duplicated(keep="last")]
+
+    merged = raw.copy()
+    merged.index = raw_keys
+    merged = merged[~merged.index.duplicated(keep="last")]
+    cols = [c for c in ["s_eff", "agg_volume", "n_trades"]
+            if c in at_aligned.columns]
+    merged = merged.join(at_aligned[cols], how="left")
+
+    coverage = (float(merged["s_eff"].notna().mean())
+                if "s_eff" in merged.columns else 0.0)
+    merged.attrs = dict(raw.attrs)
+    merged.attrs["aggtrades_symbol"] = symbol
+    merged.attrs["aggtrades_coverage"] = coverage
+    existing_note = merged.attrs.get("quality_note", "") or ""
+    merged.attrs["quality_note"] = (existing_note +
+                                    f"; aggtrades_cov={coverage:.1%}").strip("; ")
+    print(f"  [aggtrades] {symbol}: coverage {coverage:.1%} of "
+          f"{len(merged)} minute bars")
+    return merged
+
+
 def _append_metrics(new_metrics: pd.DataFrame, append: bool) -> pd.DataFrame:
     out_path = C.OUTPUT_DIR / "metrics.csv"
     if append and out_path.exists():
@@ -222,6 +332,13 @@ def main() -> int:
                     help="Minimum bars before accepting a fallback candidate. Defaults: day=20, minute=120.")
     ap.add_argument("--manual-daily-fallbacks", action="store_true",
                     help="Use daily close/OHLCV proxies for dukascopy/manual FX events. No bid/ask/spread.")
+    ap.add_argument("--bookticker", action="store_true",
+                    help="For crypto+minute, also pull Binance bookTicker and merge "
+                         "bid/ask/bid_qty/ask_qty by minute. Unlocks s and d signals.")
+    ap.add_argument("--aggtrades", action="store_true",
+                    help="For crypto+minute, pull Binance aggTrades and merge "
+                         "an effective-spread proxy s_eff. Use for events before "
+                         "the bookTicker archive cutoff (~mid-2023).")
     ap.add_argument("--dukascopy", action="store_true",
                     help="Pull real Dukascopy tick with bid/ask for FX/metal events. "
                          "Free; first-class spread (s) signal. Heavy I/O.")
@@ -277,6 +394,14 @@ def main() -> int:
             print("  no data")
             statuses.append(st)
             continue
+
+        # Optional: merge Binance bookTicker for spread + depth signals
+        if args.bookticker:
+            raw = _merge_bookticker(row, raw, args)
+
+        # Optional: merge Binance aggTrades for s_eff (proxy spread)
+        if args.aggtrades:
+            raw = _merge_aggtrades(row, raw, args)
 
         # Avoid log(0)/negative warnings in v/sigma; keep only usable OHLC rows.
         if "close" in raw.columns:

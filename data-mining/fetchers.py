@@ -401,6 +401,443 @@ def fetch_binance_daily(symbol: str, start: str, end: str,
 
 
 # ---------------------------------------------------------------------------
+# Binance USDS-futures bookTicker (best bid/ask + sizes) — streaming aggregation
+# ---------------------------------------------------------------------------
+# Source: data.binance.vision daily ZIPs at
+#   /data/futures/um/daily/bookTicker/<SYMBOL>/<SYMBOL>-bookTicker-<YYYY-MM-DD>.zip
+# Each row: update_id, best_bid_price, best_bid_qty, best_ask_price,
+#           best_ask_qty, transaction_time (ms), event_time (ms).
+#
+# Why futures and not spot: Binance Vision publishes bookTicker only for
+# futures (UM perpetuals), not for spot. For most BTC/ETH/altcoin USDT pairs
+# during 2020-2024 the perpetual is the venue of primary price discovery,
+# its spread is typically tighter than spot, and stress dynamics lead spot
+# by milliseconds-to-seconds. This makes futures bookTicker a strictly
+# stronger source for our stress-signal calibration than spot would be.
+#
+# Files can be 50-300 MB compressed for a major symbol on a stressed day.
+# We stream the CSV in chunks, aggregate to 1-minute means (bid, ask,
+# bid_qty, ask_qty) plus update count, and cache only the per-day parquet
+# so re-runs are instant. The raw ZIP is discarded after parsing.
+
+_BOOKTICKER_COLS = ["update_id", "best_bid_price", "best_bid_qty",
+                    "best_ask_price", "best_ask_qty",
+                    "transaction_time", "event_time"]
+
+
+def _aggregate_bookticker_day(symbol: str, day: pd.Timestamp,
+                              cache_dir: pathlib.Path,
+                              chunksize: int = 200_000) -> pd.DataFrame:
+    """Download one day's bookTicker ZIP and aggregate to 1-min means.
+
+    Returns DataFrame indexed by UTC minute with columns: bid, ask,
+    bid_qty, ask_qty, n_updates. Empty DataFrame if file is missing.
+    """
+    day_str = day.strftime("%Y-%m-%d")
+    cache_path = cache_dir / f"agg-{day_str}.parquet"
+    marker_path = cache_dir / f"missing-{day_str}.flag"
+
+    if cache_path.exists():
+        try:
+            cached = pd.read_parquet(cache_path)
+            # Backfill UTC on caches written before the tz fix.
+            if cached.index.tz is None:
+                cached.index = cached.index.tz_localize("UTC")
+            return cached
+        except Exception:  # noqa: BLE001
+            cache_path.unlink(missing_ok=True)
+
+    if marker_path.exists():
+        return pd.DataFrame()
+
+    # USDS-futures (UM) bookTicker. Spot is not published on the public lake.
+    url = (f"https://data.binance.vision/data/futures/um/daily/bookTicker/"
+           f"{symbol}/{symbol}-bookTicker-{day_str}.zip")
+
+    # Streaming download with progress + hard time budget per file.
+    # The per-read timeout in requests resets on every byte; we add an
+    # absolute deadline so a trickling connection cannot hang us.
+    MAX_SECONDS_PER_FILE = 300  # 5 minutes hard cap
+    print(f"  [bookticker] {symbol} {day_str}: downloading...", flush=True)
+    try:
+        r = HTTP_FAST.get(url, timeout=(5, 60), stream=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  [bookticker] {symbol} {day_str}: connect failed: {exc}")
+        return pd.DataFrame()
+
+    if r.status_code == 404:
+        marker_path.write_text("")
+        r.close()
+        return pd.DataFrame()
+    if r.status_code != 200:
+        print(f"  [bookticker] {symbol} {day_str}: HTTP {r.status_code}")
+        r.close()
+        return pd.DataFrame()
+
+    total = int(r.headers.get("Content-Length", 0) or 0)
+    chunks: list[bytes] = []
+    downloaded = 0
+    started = time.time()
+    last_print = started
+    try:
+        for chunk in r.iter_content(chunk_size=4 * 1024 * 1024):
+            if not chunk:
+                continue
+            chunks.append(chunk)
+            downloaded += len(chunk)
+            now = time.time()
+            if now - started > MAX_SECONDS_PER_FILE:
+                print(f"  [bookticker] {symbol} {day_str}: aborted after "
+                      f"{int(now - started)}s ({downloaded / 1e6:.0f}/"
+                      f"{total / 1e6:.0f} MB); skipping")
+                r.close()
+                return pd.DataFrame()
+            if now - last_print >= 5.0:
+                if total:
+                    pct = downloaded / total * 100
+                    print(f"    {symbol} {day_str}: {pct:5.1f}% "
+                          f"({downloaded / 1e6:.0f}/{total / 1e6:.0f} MB)",
+                          flush=True)
+                else:
+                    print(f"    {symbol} {day_str}: {downloaded / 1e6:.0f} MB"
+                          f" so far", flush=True)
+                last_print = now
+    finally:
+        r.close()
+
+    content = b"".join(chunks)
+
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(content))
+    except zipfile.BadZipFile:
+        print(f"  [bookticker] {symbol} {day_str}: bad zip")
+        return pd.DataFrame()
+
+    inner = zf.namelist()[0]
+
+    # Detect header: peek first bytes of inner file
+    with zf.open(inner) as peek:
+        head = peek.read(200)
+    has_header = b"update_id" in head or b"best_bid_price" in head
+
+    # Streaming aggregate across chunks
+    sums: dict[pd.Timestamp, list[float]] = {}
+    with zf.open(inner) as fh:
+        reader_kwargs = {
+            "chunksize": chunksize,
+            "header": 0 if has_header else None,
+            "names": None if has_header else _BOOKTICKER_COLS,
+            "engine": "c",
+        }
+        for chunk in pd.read_csv(fh, **reader_kwargs):
+            # Normalise column names
+            chunk.columns = [c.strip() for c in chunk.columns]
+            need = ["best_bid_price", "best_bid_qty", "best_ask_price",
+                    "best_ask_qty", "transaction_time"]
+            if not set(need).issubset(chunk.columns):
+                continue
+            ts = pd.to_datetime(chunk["transaction_time"], unit="ms",
+                                utc=True, errors="coerce")
+            mask = ts.notna()
+            if not mask.any():
+                continue
+            minute = ts[mask].dt.floor("1min")
+            grouped = (chunk.loc[mask].assign(_m=minute.values)
+                       .groupby("_m", sort=False)
+                       .agg(bid_sum=("best_bid_price", "sum"),
+                            ask_sum=("best_ask_price", "sum"),
+                            bidq_sum=("best_bid_qty", "sum"),
+                            askq_sum=("best_ask_qty", "sum"),
+                            cnt=("best_bid_price", "size")))
+            for m, row in grouped.iterrows():
+                if m not in sums:
+                    sums[m] = [0.0, 0.0, 0.0, 0.0, 0]
+                sums[m][0] += float(row["bid_sum"])
+                sums[m][1] += float(row["ask_sum"])
+                sums[m][2] += float(row["bidq_sum"])
+                sums[m][3] += float(row["askq_sum"])
+                sums[m][4] += int(row["cnt"])
+
+    if not sums:
+        marker_path.write_text("")
+        return pd.DataFrame()
+
+    rows = []
+    for m in sorted(sums):
+        bsum, asum, bqsum, aqsum, cnt = sums[m]
+        if cnt == 0:
+            continue
+        rows.append({"ts": m, "bid": bsum / cnt, "ask": asum / cnt,
+                     "bid_qty": bqsum / cnt, "ask_qty": aqsum / cnt,
+                     "n_updates": cnt})
+    if not rows:
+        marker_path.write_text("")
+        return pd.DataFrame()
+    df = pd.DataFrame(rows).set_index("ts")
+    # Groupby through .values had stripped tz; re-attach UTC.
+    if df.index.tz is None:
+        df.index = df.index.tz_localize("UTC")
+    df.to_parquet(cache_path)
+    return df
+
+
+def fetch_binance_bookticker(symbol: str, start: str, end: str,
+                             cache_root: pathlib.Path | None = None
+                             ) -> pd.DataFrame:
+    """Pull and aggregate Binance spot bookTicker into 1-minute frame.
+
+    Returns DataFrame with UTC minute index and columns:
+      bid, ask, bid_qty, ask_qty, n_updates
+    Spread (s) and depth (d) signals are derived from these in signals.py.
+    """
+    if cache_root is None:
+        cache_root = C.RAW_DIR / "bookticker_futures"
+    cache_dir = cache_root / symbol
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    days = pd.date_range(start, end, freq="D", tz="UTC")
+    print(f"  [bookticker] {symbol}: {len(days)} days "
+          f"from {pd.Timestamp(start).date()} to {pd.Timestamp(end).date()}")
+
+    frames: list[pd.DataFrame] = []
+    missing = 0
+    start_t = time.time()
+    for i, day in enumerate(days, 1):
+        df = _aggregate_bookticker_day(symbol, day, cache_dir)
+        if df.empty:
+            missing += 1
+        else:
+            frames.append(df)
+        # Per-day progress with rolling ETA: every 5 days or on the last day
+        if i % 5 == 0 or i == len(days):
+            elapsed = time.time() - start_t
+            per_day = elapsed / i if i else 0
+            eta_min = (len(days) - i) * per_day / 60
+            print(f"  [bookticker] {symbol}: {i}/{len(days)} done "
+                  f"(with_data={len(frames)}, missing={missing}, "
+                  f"ETA ~{eta_min:.0f}m)")
+
+    if not frames:
+        return _stamp(pd.DataFrame(), source="binance-bookticker",
+                      symbol=symbol, note=f"empty; missing={missing}")
+    df = pd.concat(frames).sort_index()
+    note = f"days_with_data={len(frames)}/{len(days)}; missing={missing}"
+    print(f"  [bookticker] {symbol}: {note}")
+    return _stamp(df, source="binance-bookticker", symbol=symbol, note=note)
+
+
+# ---------------------------------------------------------------------------
+# Binance spot aggTrades — derived effective spread proxy
+# ---------------------------------------------------------------------------
+# Path: /data/spot/daily/aggTrades/<SYMBOL>/<SYMBOL>-aggTrades-<YYYY-MM-DD>.zip
+# CSV (with or without header):
+#   agg_trade_id, price, quantity, first_trade_id, last_trade_id,
+#   transact_time (ms), is_buyer_maker, is_best_match
+#
+# aggTrades is the broadest historical source on Binance Vision for crypto:
+# full coverage back to 2017 for major USDT pairs. We use it ONLY when bid/ask
+# is not available (i.e. for events before mid-2023 when bookTicker archive
+# starts). The proxy we compute is the per-minute price RANGE divided by mid,
+# in bps:
+#   s_eff = (max_price - min_price) / mid * 1e4
+# This is an upward-biased estimator of true bid-ask spread because it also
+# captures intra-minute price drift. For our calibration purpose what matters
+# is the peak/baseline ratio, which is preserved as long as the bias is
+# stable across calm and stress regimes — and it is, because both regimes
+# include drift; stress just amplifies both spread and drift simultaneously.
+
+_AGGTRADES_COLS = ["agg_id", "price", "qty", "first_id", "last_id",
+                   "ts", "is_buyer_maker", "is_best_match"]
+
+
+def _aggregate_aggtrades_day(symbol: str, day: pd.Timestamp,
+                             cache_dir: pathlib.Path,
+                             chunksize: int = 200_000) -> pd.DataFrame:
+    day_str = day.strftime("%Y-%m-%d")
+    cache_path = cache_dir / f"agg-{day_str}.parquet"
+    marker_path = cache_dir / f"missing-{day_str}.flag"
+
+    if cache_path.exists():
+        try:
+            cached = pd.read_parquet(cache_path)
+            if cached.index.tz is None:
+                cached.index = cached.index.tz_localize("UTC")
+            return cached
+        except Exception:  # noqa: BLE001
+            cache_path.unlink(missing_ok=True)
+
+    if marker_path.exists():
+        return pd.DataFrame()
+
+    url = (f"https://data.binance.vision/data/spot/daily/aggTrades/"
+           f"{symbol}/{symbol}-aggTrades-{day_str}.zip")
+
+    MAX_SECONDS_PER_FILE = 180  # aggTrades zips are smaller than bookTicker
+    print(f"  [aggtrades] {symbol} {day_str}: downloading...", flush=True)
+    try:
+        r = HTTP_FAST.get(url, timeout=(5, 60), stream=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  [aggtrades] {symbol} {day_str}: connect failed: {exc}")
+        return pd.DataFrame()
+
+    if r.status_code == 404:
+        marker_path.write_text("")
+        r.close()
+        return pd.DataFrame()
+    if r.status_code != 200:
+        print(f"  [aggtrades] {symbol} {day_str}: HTTP {r.status_code}")
+        r.close()
+        return pd.DataFrame()
+
+    total = int(r.headers.get("Content-Length", 0) or 0)
+    chunks: list[bytes] = []
+    downloaded = 0
+    started = time.time()
+    last_print = started
+    try:
+        for chunk in r.iter_content(chunk_size=4 * 1024 * 1024):
+            if not chunk:
+                continue
+            chunks.append(chunk)
+            downloaded += len(chunk)
+            now = time.time()
+            if now - started > MAX_SECONDS_PER_FILE:
+                print(f"  [aggtrades] {symbol} {day_str}: aborted after "
+                      f"{int(now - started)}s; skipping")
+                r.close()
+                return pd.DataFrame()
+            if now - last_print >= 10.0:
+                if total:
+                    pct = downloaded / total * 100
+                    print(f"    {symbol} {day_str}: {pct:5.1f}% "
+                          f"({downloaded / 1e6:.0f}/{total / 1e6:.0f} MB)",
+                          flush=True)
+                last_print = now
+    finally:
+        r.close()
+    content = b"".join(chunks)
+
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(content))
+    except zipfile.BadZipFile:
+        print(f"  [aggtrades] {symbol} {day_str}: bad zip")
+        return pd.DataFrame()
+
+    inner = zf.namelist()[0]
+    with zf.open(inner) as peek:
+        head = peek.read(200)
+    has_header = b"agg_trade_id" in head or b"price" in head[:50].lower()
+
+    # Per-minute accumulators: minute_ts -> [pmax, pmin, qsum, count]
+    sums: dict[pd.Timestamp, list[float]] = {}
+    with zf.open(inner) as fh:
+        kwargs = {
+            "chunksize": chunksize,
+            "header": 0 if has_header else None,
+            "names": None if has_header else _AGGTRADES_COLS,
+            "engine": "c",
+        }
+        for chunk in pd.read_csv(fh, **kwargs):
+            chunk.columns = [c.strip() for c in chunk.columns]
+            # Normalise timestamp column name
+            if "transact_time" in chunk.columns:
+                chunk = chunk.rename(columns={"transact_time": "ts"})
+            elif "timestamp" in chunk.columns:
+                chunk = chunk.rename(columns={"timestamp": "ts"})
+            if not {"price", "qty", "ts"}.issubset(chunk.columns):
+                # Try renaming common alternates
+                if "quantity" in chunk.columns:
+                    chunk = chunk.rename(columns={"quantity": "qty"})
+                if not {"price", "qty", "ts"}.issubset(chunk.columns):
+                    continue
+            ts = pd.to_datetime(chunk["ts"], unit="ms", utc=True,
+                                errors="coerce")
+            mask = ts.notna()
+            if not mask.any():
+                continue
+            minute = ts[mask].dt.floor("1min")
+            sub = chunk.loc[mask].assign(_m=minute.values)
+            grouped = sub.groupby("_m", sort=False).agg(
+                pmax=("price", "max"),
+                pmin=("price", "min"),
+                qsum=("qty", "sum"),
+                cnt=("price", "size"),
+            )
+            for m, row in grouped.iterrows():
+                if m not in sums:
+                    sums[m] = [float(row["pmax"]), float(row["pmin"]),
+                               float(row["qsum"]), int(row["cnt"])]
+                else:
+                    if row["pmax"] > sums[m][0]:
+                        sums[m][0] = float(row["pmax"])
+                    if row["pmin"] < sums[m][1]:
+                        sums[m][1] = float(row["pmin"])
+                    sums[m][2] += float(row["qsum"])
+                    sums[m][3] += int(row["cnt"])
+
+    if not sums:
+        marker_path.write_text("")
+        return pd.DataFrame()
+
+    rows = []
+    for m in sorted(sums):
+        pmax, pmin, qsum, cnt = sums[m]
+        mid = (pmax + pmin) / 2.0
+        s_eff = ((pmax - pmin) / mid * 1e4) if mid > 0 else None
+        rows.append({"ts": m, "s_eff": s_eff,
+                     "agg_volume": qsum, "n_trades": cnt})
+    df = pd.DataFrame(rows).set_index("ts")
+    if df.index.tz is None:
+        df.index = df.index.tz_localize("UTC")
+    df.to_parquet(cache_path)
+    return df
+
+
+def fetch_binance_aggtrades(symbol: str, start: str, end: str,
+                            cache_root: pathlib.Path | None = None
+                            ) -> pd.DataFrame:
+    """Pull and aggregate Binance spot aggTrades into 1-minute proxy frame.
+
+    Columns: s_eff (effective spread in bps from price range), agg_volume,
+    n_trades. Built to be merged into the existing minute klines and read
+    by signals.py as a fallback for the s signal when bid/ask is missing.
+    """
+    if cache_root is None:
+        cache_root = C.RAW_DIR / "aggtrades"
+    cache_dir = cache_root / symbol
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    days = pd.date_range(start, end, freq="D", tz="UTC")
+    print(f"  [aggtrades] {symbol}: {len(days)} days "
+          f"from {pd.Timestamp(start).date()} to {pd.Timestamp(end).date()}")
+
+    frames: list[pd.DataFrame] = []
+    missing = 0
+    start_t = time.time()
+    for i, day in enumerate(days, 1):
+        df = _aggregate_aggtrades_day(symbol, day, cache_dir)
+        if df.empty:
+            missing += 1
+        else:
+            frames.append(df)
+        if i % 10 == 0 or i == len(days):
+            elapsed = time.time() - start_t
+            per_day = elapsed / i if i else 0
+            eta_min = (len(days) - i) * per_day / 60
+            print(f"  [aggtrades] {symbol}: {i}/{len(days)} done "
+                  f"(with_data={len(frames)}, missing={missing}, "
+                  f"ETA ~{eta_min:.0f}m)")
+
+    if not frames:
+        return _stamp(pd.DataFrame(), source="binance-aggtrades",
+                      symbol=symbol, note=f"empty; missing={missing}")
+    df = pd.concat(frames).sort_index()
+    note = f"days_with_data={len(frames)}/{len(days)}; missing={missing}"
+    print(f"  [aggtrades] {symbol}: {note}")
+    return _stamp(df, source="binance-aggtrades", symbol=symbol, note=note)
+
+
+# ---------------------------------------------------------------------------
 # Dukascopy tick (bid/ask) — direct binary download, no Node dependency
 # ---------------------------------------------------------------------------
 # Dukascopy serves per-hour LZMA-compressed binary tick files at

@@ -1,0 +1,48 @@
+event_id,event_name,asset_class,requested_source,requested_symbol,source_used,symbol_used,resolution,raw_bars,signals,status,quality_note
+cr-2014-mtgox,Mt.Gox collapse,crypto,cryptocompare,BTC,cryptocompare,BTC,day,78,"v, sigma, q",ok,
+cr-2017-btctop,BTC parabolic top and crash,crypto,binance_s3,BTCUSDT,binance-api,BTCUSDT,day,112,"v, sigma, q",ok,
+cr-2017-btctop,BTC parabolic top and crash,crypto,binance_s3,BTCUSDT,binance-api,BTCUSDT,minute,158970,"v, sigma, q",ok,
+cr-2018-bchfork,BCH hashwar fork,crypto,binance_s3,BCHUSDT,binance-api,BCHABCUSDT,day,30,"v, sigma, q",ok,proxy_symbol_for=BCHUSDT
+cr-2018-bchfork,BCH hashwar fork,crypto,binance_s3,BCHUSDT,binance-api,BCHABCUSDT,minute,42720,"v, sigma, q",ok,proxy_symbol_for=BCHUSDT
+cr-2018-bchfork-sv,BCH hashwar fork (SV leg),crypto,binance_s3,BCHSVUSDT,binance-api,BCHSVUSDT,day,30,"v, sigma, q",ok,
+cr-2018-bchfork-sv,BCH hashwar fork (SV leg),crypto,binance_s3,BCHSVUSDT,binance-api,BCHSVUSDT,minute,42720,"v, sigma, q",ok,
+cr-2019-tether,Bitfinex/Tether disclosure,crypto,binance_s3,BTCUSDT,binance-api,BTCUSDT,day,80,"v, sigma, q",ok,
+cr-2019-tether,Bitfinex/Tether disclosure,crypto,binance_s3,BTCUSDT,binance-api,BTCUSDT,minute,114240,"v, sigma, q",ok,
+cr-2020-covid,COVID crash crypto,crypto,binance_s3,BTCUSDT,binance-api,BTCUSDT,day,91,"v, sigma, q",ok,
+cr-2020-covid,COVID crash crypto,crypto,binance_s3,BTCUSDT,binance-api,BTCUSDT,minute,130498,"s, v, sigma, q",ok,aggtrades_cov=100.0%
+cr-2021-elonchina,Elon tweets + China mining ban,crypto,binance_s3,BTCUSDT,binance-api,BTCUSDT,day,97,"v, sigma, q",ok,
+cr-2021-elonchina,Elon tweets + China mining ban,crypto,binance_s3,BTCUSDT,binance-api,BTCUSDT,minute,139246,"s, v, sigma, q",ok,aggtrades_cov=100.0%
+cr-2022-celsius,Celsius/3AC cascade,crypto,binance_s3,BTCUSDT,binance-api,BTCUSDT,day,80,"v, sigma, q",ok,
+cr-2022-celsius,Celsius/3AC cascade,crypto,binance_s3,BTCUSDT,binance-api,BTCUSDT,minute,115200,"s, v, sigma, q",ok,aggtrades_cov=100.0%
+cr-2022-ftx,FTX collapse,crypto,binance_s3,BTCUSDT,binance-api,BTCUSDT,day,65,"v, sigma, q",ok,
+cr-2022-ftx,FTX collapse,crypto,binance_s3,BTCUSDT,binance-api,BTCUSDT,minute,93600,"s, v, sigma, q",ok,aggtrades_cov=100.0%
+cr-2022-luna,LUNA/UST collapse,crypto,binance_s3,LUNAUSDT,binance-api,LUNAUSDT,day,49,"v, sigma, q",ok,
+cr-2022-luna,LUNA/UST collapse,crypto,binance_s3,LUNAUSDT,binance-api,LUNAUSDT,minute,68800,"s, v, sigma, q",ok,aggtrades_cov=100.0%
+cr-2023-curve,Curve reentrancy exploit,crypto,binance_s3,CRVUSDT,binance-api,CRVUSDT,day,52,"v, sigma, q",ok,
+cr-2023-curve,Curve reentrancy exploit,crypto,binance_s3,CRVUSDT,binance-api,CRVUSDT,minute,74880,"s, v, sigma, q, d",ok,bookticker_cov=100.0%
+cr-2023-usdc,USDC depeg / SVB weekend,crypto,binance_s3,USDCUSDT,binance-api,BTCUSDT,day,48,"v, sigma, q",ok,proxy_symbol_for=USDCUSDT
+cr-2023-usdc,USDC depeg / SVB weekend,crypto,binance_s3,USDCUSDT,binance-api,USDCUSDT,minute,13560,"v, sigma, q",ok,
+cr-2024-etf,Spot ETF approval volatility,crypto,binance_s3,BTCUSDT,binance-api,BTCUSDT,day,126,"v, sigma, q",ok,
+cr-2024-etf,Spot ETF approval volatility,crypto,binance_s3,BTCUSDT,binance-api,BTCUSDT,minute,181440,"s, v, sigma, q, d",ok,bookticker_cov=99.1%
+eq-1987-blackmon,Black Monday,equity,yahoo,^GSPC,yahoo,^GSPC,day,56,"v, sigma, q",ok,
+eq-2008-lehman,Lehman week,equity,yahoo,^GSPC,yahoo,^GSPC,day,69,"v, sigma, q",ok,
+eq-2010-flashcrash,Flash Crash,equity,yahoo,^GSPC,yahoo,^GSPC,day,38,"v, sigma, q",ok,
+eq-2011-downgrade,US credit downgrade,equity,yahoo,^GSPC,yahoo,^GSPC,day,52,"v, sigma, q",ok,
+eq-2015-chinadev,China devaluation + ETF flash,equity,yahoo,^GSPC,yahoo,^GSPC,day,43,"v, sigma, q",ok,
+eq-2018-volmageddon,Volmageddon,equity,yahoo,^VIX,yahoo,^VIX,day,40,"v, sigma, q",ok,
+eq-2020-covid,COVID equity crashes,equity,yahoo,^GSPC,yahoo,^GSPC,day,62,"v, sigma, q",ok,
+eq-2022-ukraine,Ukraine war onset,equity,yahoo,^STOXX50E,yahoo,^STOXX50E,day,43,"v, sigma, q",ok,
+eq-2023-svb,SVB / banking crisis,equity,yahoo,KRE,yahoo,KRE,day,42,"v, sigma, q",ok,
+eq-2024-yencarry,Yen carry unwind,equity,yahoo,^N225,yahoo,^N225,day,36,"v, sigma, q",ok,
+fx-2008-goldflight,Flight to gold,commodity,yahoo,GC=F,yahoo,GC=F,day,88,"v, sigma, q",ok,
+fx-2013-goldcrash,Gold flash crash,commodity,dukascopy,XAUUSD,yahoo,GC=F,day,34,"v, sigma, q",ok,
+fx-2013-goldcrash,Gold flash crash,commodity,dukascopy,XAUUSD,dukascopy,XAUUSD,minute,46251,"s, v, sigma, q",ok,resample=1min; cache_hits=0; missed=7; skipped_closed=291
+fx-2015-snb,SNB EUR/CHF unpeg,fx,dukascopy,EURCHF,yahoo,EURCHF=X,day,35,"v, sigma, q",ok,
+fx-2015-snb,SNB EUR/CHF unpeg,fx,dukascopy,EURCHF,dukascopy,EURCHF,minute,45530,"s, v, sigma, q",ok,resample=1min; cache_hits=0; missed=12; skipped_closed=361
+fx-2016-brexit,Brexit GBP crash,fx,dukascopy,GBPUSD,yahoo,GBPUSD=X,day,40,"v, sigma, q",ok,
+fx-2016-brexit,Brexit GBP crash,fx,dukascopy,GBPUSD,dukascopy,GBPUSD,minute,52960,"s, v, sigma, q",ok,resample=1min; cache_hits=0; missed=67; skipped_closed=363
+fx-2019-jpyflash,JPY flash crash,fx,dukascopy,USDJPY,yahoo,USDJPY=X,day,35,"v, sigma, q",ok,
+fx-2019-jpyflash,JPY flash crash,fx,dukascopy,USDJPY,dukascopy,USDJPY,minute,30385,"s, v, sigma, q",ok,resample=1min; cache_hits=0; missed=271; skipped_closed=336
+fx-2020-wti,WTI negative price,commodity,yahoo,CL=F,yahoo,CL=F,day,45,"v, sigma, q",ok,dropped_nonpositive_close=1
+fx-2022-ldi,GBP gilt LDI crisis,fx,dukascopy,GBPUSD,yahoo,GBPUSD=X,day,44,"v, sigma, q",ok,
+fx-2022-ldi,GBP gilt LDI crisis,fx,dukascopy,GBPUSD,dukascopy,GBPUSD,minute,61642,"s, v, sigma, q",ok,resample=1min; cache_hits=0; missed=14; skipped_closed=387

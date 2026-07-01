@@ -54,7 +54,7 @@ def _adaptive_sigma_window(idx: pd.Index) -> int:
 
 
 def build_signals(df: pd.DataFrame) -> pd.DataFrame:
-    """Add s, v, sigma, q columns where the inputs allow."""
+    """Add s, v, sigma, q, d columns where the inputs allow."""
     out = pd.DataFrame(index=df.index)
     close = pd.to_numeric(df["close"], errors="coerce").astype(float)
 
@@ -96,6 +96,25 @@ def build_signals(df: pd.DataFrame) -> pd.DataFrame:
         spread_bps = (ask - bid) / mid.replace(0, np.nan) * 1e4
         out["s"] = spread_bps
 
+    # Effective spread proxy from aggTrades price range. Kept as a SEPARATE
+    # signal from `s`, not a fallback. Empirical check showed s_eff is
+    # methodologically correlated with v (both measure intra-minute price
+    # movement), so it is not a valid substitute for real bid-ask spread.
+    # It remains useful as its own "intra-minute range" indicator and is
+    # reported alongside s in metrics for events where real spread is
+    # unavailable, but must not be combined with s in statistics.
+    if "s_eff" in df.columns:
+        out["s_eff"] = pd.to_numeric(df["s_eff"], errors="coerce").astype(float)
+
+    # Depth at top of book = bid_qty + ask_qty (book thickness on level 1).
+    # This is a "drought signal": during stress it drops, not rises.
+    if {"bid_qty", "ask_qty"}.issubset(df.columns):
+        bid_qty = pd.to_numeric(df["bid_qty"], errors="coerce").astype(float)
+        ask_qty = pd.to_numeric(df["ask_qty"], errors="coerce").astype(float)
+        depth = bid_qty + ask_qty
+        # Zero depth is undefined; drop those rows for the d signal only.
+        out["d"] = depth.where(depth > 0, np.nan)
+
     return out
 
 
@@ -103,31 +122,47 @@ def build_signals(df: pd.DataFrame) -> pd.DataFrame:
 # Episode-local helpers
 # ---------------------------------------------------------------------------
 def _baseline(series: pd.Series, window_start: pd.Timestamp) -> float:
-    """Median of the signal over the 30 days before the window opens."""
+    """Median of the signal over the 30 days before the window opens.
+
+    For sparse signals (e.g. velocity on illiquid pairs where many minute
+    bars have no trade and thus zero return), the strict median can be 0,
+    which makes the peak/baseline ratio undefined. We fall back to the
+    median of the non-zero subset; as a last resort, the mean.
+    """
     base_start = window_start - pd.Timedelta(days=C.BASELINE_DAYS)
     base = series.loc[base_start:window_start].dropna()
     if base.empty:
         return np.nan
-    return float(base.median())
+    med = float(base.median())
+    if med > 0:
+        return med
+    nonzero = base[base > 0]
+    if not nonzero.empty:
+        return float(nonzero.median())
+    m = float(base.mean())
+    return m if m > 0 else np.nan
 
 
 def _episode_bounds(win: pd.Series, peak_ts: pd.Timestamp,
-                    breach_level: float, recovery_level: float
+                    recovery_level: float, direction: str = "up"
                     ) -> tuple[pd.Timestamp, pd.Timestamp]:
     """Find the contiguous stress episode that contains the peak.
 
-    Walks backward from the peak until the signal drops under the recovery
-    level (or under the breach level for at least one bar), and forward
-    until the same. Returns episode start and end timestamps.
+    direction="up":   stress = signal above recovery_level (high-stress)
+    direction="down": stress = signal below recovery_level (drought)
     """
     if win.empty:
         return peak_ts, peak_ts
 
+    if direction == "down":
+        calm_mask = win >= recovery_level
+    else:
+        calm_mask = win <= recovery_level
+
     # Backward walk: stop when signal returns to recovery level
-    before = win.loc[:peak_ts]
-    calm_before = before[before <= recovery_level]
+    before_mask = calm_mask.loc[:peak_ts]
+    calm_before = before_mask[before_mask]
     start = calm_before.index[-1] if len(calm_before) else win.index[0]
-    # Move one step forward from the last calm bar so episode starts on stress
     if start != peak_ts:
         loc = win.index.get_loc(start)
         if isinstance(loc, slice):
@@ -136,11 +171,17 @@ def _episode_bounds(win: pd.Series, peak_ts: pd.Timestamp,
             start = win.index[loc + 1]
 
     # Forward walk: stop when signal returns to recovery level
-    after = win.loc[peak_ts:]
-    calm_after = after[after <= recovery_level]
+    after_mask = calm_mask.loc[peak_ts:]
+    calm_after = after_mask[after_mask]
     end = calm_after.index[0] if len(calm_after) else win.index[-1]
 
     return start, end
+
+
+# Signals that hit their stress extreme as a TROUGH (low value), not a PEAK.
+# For these the breach/recovery comparisons flip: stress is "below baseline/k",
+# calm is "above baseline/k".
+DROUGHT_SIGNALS: frozenset[str] = frozenset({"d"})
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +194,7 @@ def event_metrics(signals: pd.DataFrame, window_start: str, window_end: str,
     we = pd.Timestamp(window_end, tz="UTC")
     rows: list[dict] = []
 
-    for name in ["s", "v", "sigma", "q"]:
+    for name in ["s", "v", "sigma", "q", "d", "s_eff"]:
         if name not in signals.columns:
             continue
         full = signals[name].dropna()
@@ -169,34 +210,54 @@ def event_metrics(signals: pd.DataFrame, window_start: str, window_end: str,
                              n_obs=len(win)))
             continue
 
-        # Peak selection
-        if peak_direction == "down" and name == "q":
+        # Is this a drought-style signal (stress = trough) or panic-style (stress = peak)?
+        is_drought = (
+            (name in DROUGHT_SIGNALS) or
+            (name == "q" and peak_direction == "down")
+        )
+
+        if is_drought:
+            # Trough is the "peak of stress"
             peak_val = win.min()
             peak_ts = win.idxmin()
-            ratio = baseline / peak_val if peak_val else np.nan
+            ratio = baseline / peak_val if peak_val > 0 else np.nan
+            breach_level = baseline / C.STRESS_MULTIPLE
+            recovery_level = baseline / C.RECOVERY_MULTIPLE
+            direction = "down"
         else:
             peak_val = win.max()
             peak_ts = win.idxmax()
             ratio = peak_val / baseline
+            breach_level = C.STRESS_MULTIPLE * baseline
+            recovery_level = C.RECOVERY_MULTIPLE * baseline
+            direction = "up"
 
-        breach_level = C.STRESS_MULTIPLE * baseline
-        recovery_level = C.RECOVERY_MULTIPLE * baseline
         bar_h = _bar_hours_from_index(win.index)
 
         # Episode-local metrics: scoped to the stress episode containing peak
-        ep_start, ep_end = _episode_bounds(win, peak_ts, breach_level,
-                                           recovery_level)
+        ep_start, ep_end = _episode_bounds(win, peak_ts, recovery_level,
+                                           direction=direction)
         episode = win.loc[ep_start:ep_end]
 
         # First breach inside the episode (not in the whole window)
-        breach = episode[episode >= breach_level]
+        if is_drought:
+            breach = episode[episode <= breach_level]
+        else:
+            breach = episode[episode >= breach_level]
+
         if not breach.empty:
             t0 = breach.index[0]
             ttp_h = max(0.0, (peak_ts - t0).total_seconds() / 3600.0)
-            above_mask = episode >= breach_level
+            if is_drought:
+                above_mask = episode <= breach_level
+            else:
+                above_mask = episode >= breach_level
             dur_h = float(above_mask.sum()) * bar_h
             calm_after_peak = win.loc[peak_ts:]
-            calm = calm_after_peak[calm_after_peak <= recovery_level]
+            if is_drought:
+                calm = calm_after_peak[calm_after_peak >= recovery_level]
+            else:
+                calm = calm_after_peak[calm_after_peak <= recovery_level]
             rec_h = ((calm.index[0] - peak_ts).total_seconds() / 3600.0
                      if not calm.empty else np.nan)
         else:
