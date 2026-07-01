@@ -32,7 +32,7 @@ import pandas as pd
 
 import config as C
 
-SIGNALS = ["s", "v", "sigma", "q", "d", "s_eff"]
+SIGNALS = ["s", "v", "sigma", "q", "d", "s_eff", "illiq"]
 MIN_OBS_PAIR = 100         # minimum bars per pair to compute a correlation
 MIN_OBS_PER_SIGNAL = 100   # minimum non-null bars for a signal to be considered
 

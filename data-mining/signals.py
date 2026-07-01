@@ -115,6 +115,18 @@ def build_signals(df: pd.DataFrame) -> pd.DataFrame:
         # Zero depth is undefined; drop those rows for the d signal only.
         out["d"] = depth.where(depth > 0, np.nan)
 
+    # Amihud (2002) illiquidity ratio: |return| / dollar_volume per bar.
+    # Empirical impact-slope proxy that does not require L2 depth. Robust to
+    # jump-dominated stress events (unlike Corwin-Schultz or Roll, which
+    # assume continuous Brownian volatility and inflate on jumps). Verified
+    # to give qualitatively correct rankings on our 26 events with volume.
+    if "volume" in df.columns and (close > 0).all():
+        vol = pd.to_numeric(df["volume"], errors="coerce").astype(float)
+        logret = np.log(close).diff()
+        dollar = (close * vol).replace(0, np.nan)
+        illiq = logret.abs() / dollar
+        out["illiq"] = illiq.where(illiq > 0, np.nan)
+
     return out
 
 
@@ -194,7 +206,7 @@ def event_metrics(signals: pd.DataFrame, window_start: str, window_end: str,
     we = pd.Timestamp(window_end, tz="UTC")
     rows: list[dict] = []
 
-    for name in ["s", "v", "sigma", "q", "d", "s_eff"]:
+    for name in ["s", "v", "sigma", "q", "d", "s_eff", "illiq"]:
         if name not in signals.columns:
             continue
         full = signals[name].dropna()
