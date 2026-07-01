@@ -165,6 +165,11 @@ def fetch_one(row: pd.Series, args: argparse.Namespace) -> pd.DataFrame:
         return F.fetch_polygon_intraday(sym, pull_start, end,
                                         include_nbbo=args.polygon_nbbo)
 
+    if src == "massive":
+        # Stocks Starter: minute aggregates only (no NBBO). Spread signals
+        # will be filled by Roll/Corwin-Schultz estimators + Amihud illiq.
+        return F.fetch_massive_intraday(sym, pull_start, end)
+
     print(f"  [skip] {eid}: unknown source {src}")
     return pd.DataFrame()
 

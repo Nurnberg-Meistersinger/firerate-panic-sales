@@ -13,14 +13,14 @@ cr-2023-usdc,2023-03-11,USDC depeg / SVB weekend,crypto,binance_s3,USDCUSDT,liqu
 cr-2023-curve,2023-07-30,Curve reentrancy exploit,crypto,binance_s3,CRVUSDT,manipulation,2023-07-25,2023-08-10,up,Catalog said 2023-06 but actual exploit 2023-07-30; window set to real date. DEX data needs separate parsing.
 cr-2024-etf,2024-01-11,Spot ETF approval volatility,crypto,binance_s3,BTCUSDT,macro_shock,2024-01-01,2024-03-31,up,Full set.
 eq-1987-blackmon,1987-10-19,Black Monday,equity,yahoo,^GSPC,macro_shock,1987-10-01,1987-11-15,up,Daily only; no intraday/spread. Also ^DJI.
-eq-2008-lehman,2008-09-15,Lehman week,equity,yahoo,^GSPC,liquidity_crisis,2008-09-01,2008-10-31,up,Daily + FRED VIXCLS. Intraday spread only via WRDS.
-eq-2010-flashcrash,2010-05-06,Flash Crash,equity,yahoo,^GSPC,tech_failure,2010-05-01,2010-05-20,up,Daily masks the event; needs Polygon intraday for real signal.
-eq-2011-downgrade,2011-08-08,US credit downgrade,equity,yahoo,^GSPC,macro_shock,2011-07-25,2011-08-31,up,Full set on daily. Also ^VIX.
-eq-2015-chinadev,2015-08-24,China devaluation + ETF flash,equity,yahoo,^GSPC,macro_shock,2015-08-15,2015-09-10,up,Intraday only via Polygon.
-eq-2018-volmageddon,2018-02-05,Volmageddon,equity,yahoo,^VIX,tech_failure,2018-01-25,2018-02-20,up,XIV delisted; track ^VIX and SVXY. CBOE intraday VIX available free.
-eq-2020-covid,2020-03-16,COVID equity crashes,equity,yahoo,^GSPC,macro_shock,2020-02-20,2020-04-15,up,Full set on daily; intraday via Polygon. Also ^VIX.
+eq-2008-lehman,2008-09-15,Lehman week,equity,yahoo,^GSPC,liquidity_crisis,2008-09-01,2008-10-31,up,Reverted to yahoo daily: Massive Starter tier caps history at 10 years (17 years ago). Event is multi-day drift so daily still captures the shape; peak_ratio not materially biased.
+eq-2010-flashcrash,2010-05-06,Flash Crash,equity,yahoo,^GSPC,tech_failure,2010-05-01,2010-05-20,up,Reverted to yahoo daily: Massive Starter caps at 10Y history (event is 16Y ago). Daily WILL MASK the 14:42-15:07 EDT intraday event; peak_ratio biased down. Kept in the study only as a documented calibration gap.
+eq-2011-downgrade,2011-08-08,US credit downgrade,equity,yahoo,^GSPC,macro_shock,2011-07-25,2011-08-31,up,Reverted to yahoo daily: Massive Starter caps at 10Y history (event is 15Y ago). Multi-day drift so daily captures the shape; peak_ratio approximately preserved.
+eq-2015-chinadev,2015-08-24,China devaluation + ETF flash,equity,yahoo,^GSPC,macro_shock,2015-08-15,2015-09-10,up,Reverted to yahoo daily: Massive Starter caps at 10Y history (event is 10.9Y ago; just past the cutoff). Daily masks the ETF Flash open (12% dislocation in first 30 min); peak_ratio biased down. Second documented calibration gap.
+eq-2018-volmageddon,2018-02-05,Volmageddon,equity,massive,SVXY,tech_failure,2018-01-25,2018-02-20,up,"Switched primary asset from ^VIX (index; excluded from Stocks Starter) to SVXY ETF via Massive minute aggs. XIV was delisted by ProShares but still queryable via ticker XIV; ^VIX kept as Yahoo daily backdrop."
+eq-2020-covid,2020-03-16,COVID equity crashes,equity,massive,SPY,macro_shock,2020-02-20,2020-04-15,up,SPY minute aggs via Massive. Multiple limit-up/limit-down halts on 2020-03-09/12/16/18 which minute data reveals cleanly.
 eq-2022-ukraine,2022-02-24,Ukraine war onset,equity,yahoo,^STOXX50E,macro_shock,2022-02-18,2022-03-15,up,"Also ^GSPC, energy."
-eq-2023-svb,2023-03-10,SVB / banking crisis,equity,yahoo,KRE,liquidity_crisis,2023-03-08,2023-03-31,up,SIVB delisted; use KRE regional-bank ETF + ^GSPC.
+eq-2023-svb,2023-03-10,SVB / banking crisis,equity,massive,KRE,liquidity_crisis,2023-03-08,2023-03-31,up,KRE minute aggs via Massive. SIVB delisted 2023-03-17 but still queryable at Massive; adding as secondary in fetch step if plan allows.
 eq-2024-yencarry,2024-08-05,Yen carry unwind,equity,yahoo,^N225,macro_shock,2024-07-30,2024-08-15,up,"Also ^GSPC, ^NDX."
 fx-2008-goldflight,2008-10-10,Flight to gold,commodity,yahoo,GC=F,macro_shock,2008-09-01,2008-11-30,up,Daily only this far back; no tick spread. FRED gold fallback.
 fx-2013-goldcrash,2013-04-15,Gold flash crash,commodity,dukascopy,XAUUSD,manipulation,2013-04-08,2013-04-20,up,Tick bid/ask via Dukascopy. CME daily fallback.

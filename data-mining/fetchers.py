@@ -1129,3 +1129,25 @@ def fetch_polygon_intraday(symbol: str, start: str, end: str,
     aggs["ask"] = ask_col
     note = f"aggs+nbbo sampled@{nbbo_sample_min}m"
     return _stamp(aggs, source="polygon", symbol=symbol, note=note)
+
+
+# ---------------------------------------------------------------------------
+# Massive.com REST API (Stocks Starter tier — aggregates only, no NBBO)
+# ---------------------------------------------------------------------------
+def fetch_massive_intraday(symbol: str, start: str, end: str) -> pd.DataFrame:
+    """Wrapper over fetch_massive.fetch_minute_aggs conforming to our schema.
+
+    Returns DataFrame indexed by UTC timestamp with columns:
+        open, high, low, close, volume, trades, vwap
+    Stocks Starter tier does NOT include NBBO quotes, so bid/ask columns are
+    absent. Downstream signals.py will fall back to Roll/Corwin-Schultz
+    spread estimators + Amihud illiquidity for the s and s_eff proxies.
+    """
+    import fetch_massive as FM
+
+    df = FM.fetch_minute_aggs(symbol, start, end)
+    if df.empty:
+        return _stamp(df, source="massive-api", symbol=symbol, note="empty")
+    note = (f"aggs_only n_requests={df.attrs.get('n_requests', 1)} "
+            f"resolved_symbol={df.attrs.get('symbol_used', symbol)}")
+    return _stamp(df, source="massive-api", symbol=symbol, note=note)
