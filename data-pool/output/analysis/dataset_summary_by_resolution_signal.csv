@@ -1,7 +1,0 @@
-resolution,signal,events,valid_peak_ratio,median_peak_ratio,max_peak_ratio
-day,q,29,23,3.399,80979.075
-day,sigma,29,28,3.165,54.258
-day,v,29,28,12.5185,908.192
-minute,q,11,9,110.317,5507198.096
-minute,sigma,11,9,33.968,202.762
-minute,v,11,8,158.427,1188.627
